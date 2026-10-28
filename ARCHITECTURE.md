@@ -1,10 +1,16 @@
 # AEGIS architecture
 
-This document describes the LLVM Shield prototype, core platform, and milestone
-002 adapter on `feat/llvm-adapter`, based on `dev/integration` at `65f2ceb`.
-Planned work is
-marked **planned** and is not implemented. If this document and the code
+This is a living repository architecture note. The original implementation evidence was recorded at `c995857` on `dev/integration`; the revised PDFs retain that evidence and use the current four-role organization. The current workstream organization and status are in [TEAM_WORKSTREAMS.md](docs/TEAM_WORKSTREAMS.md) and [PROJECT_STATUS.md](docs/PROJECT_STATUS.md). Planned work is marked **planned** and is not implemented. If this document and the code
 disagree, the code is right and this document has a bug.
+
+## Four active engineering streams (28 October 2026)
+
+- **A — Core Platform, Shield & Integration:** `core/`, `platform/api/`, `platform/cli/`, `protectors/llvm/` including `adapter/`, `demo/image_processor/`, governance and CI. See issue #9.
+- **B — Adversarial AI Lab & Mirage:** `attack_lab/` and `protectors/mirage/` (planned), issue #10.
+- **C — Frontend & Product Experience:** `platform/dashboard/` (planned), issue #11.
+- **D — Signature, Sentinel & Verification:** `provenance/` and `sentinel/` (planned), issue #12. First deliverable is offline signed provenance; policy and watermark research follow separately.
+
+Issue #7 separately coordinates cross-ecosystem tests using PhotoCraft, the reVC branch of re-GTA, and Mattermost. ImageLab remains the controlled internal regression target. Protectors must never use benchmark names or target-specific answer logic. See [ownership and dependencies](docs/TEAM_WORKSTREAMS.md).
 
 ## 1. Components
 
@@ -40,6 +46,10 @@ disagree, the code is right and this document has a bug.
 | `platform/cli/` | `aegis-cli` / `aegis_cli` | Python, stdlib `argparse` | implemented |
 | `protectors/llvm/` | AEGIS Shield (`AegisShield.so`) | C++20 LLVM pass plugin, CMake, LLVM ≥22 | prototype; connected through adapter below |
 | `protectors/llvm/adapter/` | LLVM Shield adapter | Python ≥3.11, POSIX, stdlib | implemented; textual IR, LLVM 22, explicit registration |
+| `demo/image_processor/` | ImageLab controlled application/harness | C++20, CMake, Python stdlib tests | implemented; native/IR baseline/Shield/external variants |
+| `attack_lab/`, `protectors/mirage/` | Adversarial evaluation and decoys | to be decided | planned |
+| `provenance/`, `sentinel/` | Signing, watermark/policies | to be decided | planned |
+| `platform/dashboard/` | Developer frontend | to be decided | planned |
 
 The Python packages are named `aegis_*` because a top-level package called
 `platform` would hide the standard-library `platform` module.
@@ -61,9 +71,7 @@ These rules reflect the current imports and must stay true:
    and modifies no root build or shared contract. Its test and benchmark tooling
    uses only the Python standard library. Its adapter runtime is also stdlib;
    the separate adapter integration tests use core/CLI and pytest.
-5. There is no root build. Each component is built and tested on its own (see
-   `README.md` and ADR 0001). The root `pyproject.toml` only configures pytest
-   to run the three Python suites together.
+5. There is no root build. Each component is built and tested separately. The root `pyproject.toml` configures pytest for the three Python application suites; the LLVM adapter's additional 94 integration tests require an explicit path. ImageLab is its own CMake project. See the detailed commands in the technical PDF §09.
 
 ## 3. Contracts (`aegis_core.models`)
 
@@ -223,6 +231,6 @@ never register them as outputs.
 | A3 | **Resolved for Shield:** zero transformed sites fail with `NO_TRANSFORMATIONS_APPLIED`. Generic core protection-effectiveness semantics remain backend-specific. |
 | A4 | API jobs run in-process as background tasks. A server stop mid-run leaves a job `running`; there is no recovery or queue. |
 | A5 | Adapter stdout/stderr are read fully into memory. `max_stdout_bytes` is checked after the process exits, not while it streams. |
-| A6 | No `main` branch exists locally and there is no remote-tracking branch, so the promotion path from `dev/integration` is undefined. There is also no CI; validation is manual (see `AGENTS.md`). |
-| A7 | Python 3.14 is the only verified interpreter, although packages declare `>=3.11`. LLVM 22.1.8 is the only verified LLVM. |
+| A6 | The repository's public default branch is `dev/integration`. No release branch or required CI was confirmed at this revision; release/branch-protection policy must be agreed and implemented. |
+| A7 | The recorded full integration run used Python 3.14 and LLVM 22.1.8. The four-role documentation revision also passed the 105 Core/API/CLI tests on Python 3.12.14; native integration was not rerun there. Packages declare `>=3.11`. |
 | A8 | `.env.example` is empty. The runtime environment variables in use are `AEGIS_CONFIG` and `AEGIS_API_TOKEN`. |

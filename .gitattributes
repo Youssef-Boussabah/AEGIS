@@ -1,0 +1,2 @@
+# Treat generated PDFs as binary even when their first bytes are mostly text.
+*.pdf binary

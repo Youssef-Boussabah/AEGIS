@@ -9,8 +9,9 @@
 # protectors/llvm/ is a CMake project and is not part of the Python build.
 
 [tool.pytest.ini_options]
-# `pytest` from the repository root runs every Python package suite.
+# `pytest` from the repository root runs Core, API and CLI suites only.
 # Running pytest inside a package directory uses that package's own settings.
-# The LLVM integration suite is driven by CTest, not pytest (see AGENTS.md).
+# The LLVM plugin uses CTest. Its Python adapter suite needs an explicit
+# protectors/llvm/adapter/tests path and matching tools (see AGENTS.md).
 testpaths = ["core/tests", "platform/api/tests", "platform/cli/tests"]
 addopts = "-ra"

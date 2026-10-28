@@ -373,4 +373,5 @@ seed.
 - Reading the umask for output files briefly changes it process-wide; this
   is fine for the single-threaded CLI, but not for multi-threaded callers of
   `pam::write_file`.
-- The root `AGENTS.md` ownership table does not list `demo/` yet.
+- `demo/image_processor/` belongs to role A (Core Platform, Shield & Integration);
+  role C maintains the product demonstration flow. See the root `AGENTS.md`.

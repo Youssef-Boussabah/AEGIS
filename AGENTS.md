@@ -5,36 +5,30 @@ agent. Read it first, then [ARCHITECTURE.md](ARCHITECTURE.md), then the README
 of the module you will touch. A module README may add stricter rules for that
 module, but it may not loosen these.
 
-## 1. Module ownership
+## 1. Module ownership (four active workstreams)
 
-Work only inside the paths your task assigns you. Anything outside them is
-read-only unless the task explicitly says otherwise.
+See [docs/TEAM_WORKSTREAMS.md](docs/TEAM_WORKSTREAMS.md) and the four current umbrella issues [#9](https://github.com/Youssef-Boussabah/AEGIS/issues/9), [#10](https://github.com/Youssef-Boussabah/AEGIS/issues/10), [#11](https://github.com/Youssef-Boussabah/AEGIS/issues/11), and [#12](https://github.com/Youssef-Boussabah/AEGIS/issues/12). Both PDFs use these same four roles. Roles describe technical responsibility, not named people or availability. The reorganization does not change technical contracts.
 
-| Path | Owner (feature branch / worktree) | Notes |
+| Path | Primary workstream | Notes |
 | --- | --- | --- |
-| `core/` | core platform (`feat/core-platform`, `aegis-claude`) | `aegis_core`: contracts, store, orchestrator, adapter runner |
-| `platform/api/` | core platform | `aegis_api`: FastAPI service |
-| `platform/cli/` | core platform | `aegis_cli`: `aegis` command |
-| `protectors/llvm/` | LLVM Shield (`feat/llvm-shield`, `aegis-codex`) | C++ LLVM pass plugin, CMake, its own tests and benchmarks |
-| root files, `docs/` | repository governance (`docs/*` branches) | `AGENTS.md`, `ARCHITECTURE.md`, `README.md`, `.gitignore`, `pyproject.toml`, ADRs |
+| `core/`, `platform/api/`, `platform/cli/` | **A — Core Platform, Shield & Integration** | strict models, jobs, API and CLI |
+| `protectors/llvm/` (including `adapter/`) | **A** | Shield plugin and LLVM adapter |
+| `demo/image_processor/` | **A** | ImageLab benchmark and integration harness |
+| root, `.github/`, `docs/` | **A** | CI, architecture, ADRs, cross-stream coordination |
+| `attack_lab/`, `protectors/mirage/` | **B — Adversarial AI Lab & Mirage** | independent scoring and defensive decoys |
+| `platform/dashboard/` | **C — Frontend & Product Experience** | UI and frontend tests; API changes coordinated with A |
+| `provenance/`, `sentinel/` | **D — Signature, Sentinel & Verification** | signed manifests first; policy/watermark later |
 
-- Changing a shared contract means changing anything in
-  `aegis_core.models`, the adapter protocol (`core/docs/adapter-protocol.md`,
-  `aegis_core.adapter`), or a schema under `protectors/llvm/schemas/`. That
-  needs a change in the owning module plus an update to `ARCHITECTURE.md`. It
-  may also need an ADR.
-- Do not edit another module to make your own work pass. Report the
-  incompatibility instead.
-- The LLVM Shield adapter (ARCHITECTURE.md §7) has no owner yet. Don't create
-  it without a task that assigns it.
+Do not edit outside assigned paths without explicit approval. Shared changes to `aegis_core.models`, `core/docs/adapter-protocol.md`, Core storage/authorization, backend local schemas, or public API need approval by A and the affected owner. Team members and coding agents must never weaken the dual attack-lab authorization gates, invent security evidence, or silently add test-specific special cases.
+
+The four workstream branches are `feat/core-shield`, `feat/lab-mirage`, `feat/frontend`, and `feat/signature-sentinel`. Historical branch names in ADRs describe earlier work. Follow [CONTRIBUTING.md](CONTRIBUTING.md) for checkout, synchronization and PR instructions.
 
 ## 2. Branches and commits
 
-- `dev/integration` is the integration branch. Feature work is combined there
-  (so far by cherry-picking each feature branch's commits). There is no `main`
-  branch yet (ARCHITECTURE.md, A6).
-- Do feature work on a new branch created from `dev/integration` (or from the
-  commit the task names), named:
+- `dev/integration` is the public default integration branch. Prefer reviewed PRs for new work; earlier milestones also used cherry-picks. A release branch is not yet defined.
+- Use the existing workstream branch for its coordinated work, or a short task
+  branch created from current `origin/dev/integration`. Both target `dev/integration`
+  through a PR. Name task branches:
   - `feat/<area>` for features
   - `fix/<area>` for fixes
   - `docs/<topic>` for documentation
@@ -80,12 +74,12 @@ including tests for its error paths.
 
 | Suite | Command (from repository root) | Notes |
 | --- | --- | --- |
-| all Python | `.venv/bin/pytest` | root `pyproject.toml` runs `core/tests`, `platform/api/tests`, `platform/cli/tests` |
+| default Python | `.venv/bin/pytest` | root `pyproject.toml` selects Core, API, CLI only (currently 105 tests at baseline) |
+| complete Python + real adapter suite | `.venv/bin/python -m pytest core/tests platform/api/tests platform/cli/tests protectors/llvm/adapter/tests -q` | includes LLVM adapter cases (199 total at recorded baseline); requires working LLVM 22 tools and plugin |
 | one package | `(cd core && ../.venv/bin/pytest)`, and likewise for `platform/api` and `platform/cli` | uses the package's own pytest config |
 | LLVM Shield | `cmake -S protectors/llvm -B /tmp/aegis-shield-build -G Ninja -DLLVM_DIR="$(llvm-config --cmakedir)" -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release && cmake --build /tmp/aegis-shield-build && ctest --test-dir /tmp/aegis-shield-build --output-on-failure` | needs LLVM ≥22 (verified 22.1.8) with matching `opt` and `clang`; driven by CTest, **not** pytest |
 
-- Run every suite your change can affect. For root and docs changes, run all
-  of them.
+- Run every suite your change can affect. For root and docs changes, run the complete Python suite, LLVM CTest and ImageLab CTest where the required toolchain is available. Missing prerequisites must be reported as **not run**, never passed. See the detailed commands in `docs/AEGIS_TECHNICAL_DOCUMENTATION.pdf` §09.
 - Python tests use `aegis_core.testing.fake_adapter`, which applies no
   protection. Never register it as a real backend or cite its output as
   evidence of protection.
