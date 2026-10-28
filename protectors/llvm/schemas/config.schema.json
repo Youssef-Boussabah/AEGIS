@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aegis-shield-llvm:config:1",
+  "title": "AEGIS Shield LLVM local config v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "seed": {
+      "type": "string",
+      "pattern": "^[0-9]+$",
+      "description": "Unsigned base-10 uint64, range 0..18446744073709551615 checked by backend; default 0."
+    },
+    "max_sites_per_function": {"type": "integer", "minimum": 0, "maximum": 1000000, "default": 16},
+    "enabled": {"type": "boolean", "default": true}
+  }
+}

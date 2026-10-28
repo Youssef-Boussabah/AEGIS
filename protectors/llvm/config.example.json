@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "seed": "42",
+  "max_sites_per_function": 16,
+  "enabled": true
+}

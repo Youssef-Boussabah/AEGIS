@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "timestamp_utc": "2026-10-28T02:05:50.632417+00:00",
+  "platform": "Linux-7.2.3-1-cachyos-x86_64-with-glibc2.44",
+  "cpu": "Intel(R) Core(TM) Ultra 9 185H",
+  "clang": "clang version 22.1.8",
+  "opt": "LLVM version 22.1.8",
+  "pipeline": "clang -O1 -> aegis-shield (transformed only) -> clang -O2 object -> clang -O2 link",
+  "iterations_per_sample": 20000000,
+  "samples": 9,
+  "warmups_per_executable": 1,
+  "seed": "42",
+  "transformed_sites": 3,
+  "results": {
+    "baseline": {
+      "seconds": [
+        0.078419946,
+        0.066444635,
+        0.066261713,
+        0.083706625,
+        0.079250669,
+        0.065757773,
+        0.073364098,
+        0.067819087,
+        0.07913892
+      ],
+      "checksum": "3ee3ed446eb83a2d",
+      "executable_bytes": 16256,
+      "kernel_text_bytes": 51,
+      "kernel_text_sha256": "7e14c5b169d07166839f777871f99131be5b49e586733dda96dd34a49d70ba28",
+      "ir_bytes": 1838,
+      "median_seconds": 0.073364098,
+      "min_seconds": 0.065757773,
+      "max_seconds": 0.083706625
+    },
+    "transformed": {
+      "seconds": [
+        0.088628231,
+        0.091700455,
+        0.081079862,
+        0.095752667,
+        0.089449526,
+        0.102784737,
+        0.0861883,
+        0.0973608,
+        0.092312216
+      ],
+      "checksum": "3ee3ed446eb83a2d",
+      "executable_bytes": 16256,
+      "kernel_text_bytes": 60,
+      "kernel_text_sha256": "0db0489ba7b79c73a1b48c12845fae1a872eb889e5fa5da1dbb66879c9865e75",
+      "ir_bytes": 2795,
+      "median_seconds": 0.091700455,
+      "min_seconds": 0.081079862,
+      "max_seconds": 0.102784737
+    }
+  },
+  "transformed_to_baseline_median_ratio": 1.249936378962909,
+  "kernel_machine_code_identical": false,
+  "limitations": [
+    "Single dependency-chain integer kernel, not an application workload",
+    "Unpinned shared host; timings include scheduling and frequency noise",
+    "Matching checksums are a regression check, not a proof",
+    "IR expansion and overhead do not establish security"
+  ]
+}

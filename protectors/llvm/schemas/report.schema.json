@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aegis-shield-llvm:report:1",
+  "title": "AEGIS Shield LLVM local transformation report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "backend", "llvm_version", "module", "config", "transformed_sites", "functions"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "backend": {"const": "aegis-shield-llvm"},
+    "llvm_version": {"type": "string"},
+    "module": {"type": "string"},
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seed", "max_sites_per_function", "enabled"],
+      "properties": {
+        "seed": {"type": "string", "pattern": "^[0-9]+$"},
+        "max_sites_per_function": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "enabled": {"type": "boolean"}
+      }
+    },
+    "transformed_sites": {"type": "integer", "minimum": 0},
+    "functions": {"type": "array", "items": {"$ref": "#/$defs/function"}}
+  },
+  "$defs": {
+    "function": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "annotated", "status", "reason", "transformed_sites", "skipped_adds"],
+      "properties": {
+        "name": {"type": "string"},
+        "annotated": {"type": "boolean"},
+        "status": {"enum": ["skipped", "transformed"]},
+        "reason": {"enum": ["not-annotated", "disabled", "declaration", "unsupported-signature", "optnone", "no-eligible-sites", "expanded"]},
+        "transformed_sites": {"type": "array", "items": {"$ref": "#/$defs/site"}},
+        "skipped_adds": {
+          "type": "object",
+          "propertyNames": {"enum": ["already-generated", "unsupported-type", "overflow-flags", "undef-or-poison", "budget"]},
+          "additionalProperties": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "site": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["add_index", "bit_width", "variant"],
+      "properties": {
+        "add_index": {"type": "integer", "minimum": 0},
+        "bit_width": {"type": "integer", "minimum": 2, "maximum": 128},
+        "variant": {"enum": ["xor-carry", "or-carry"]}
+      }
+    }
+  }
+}
