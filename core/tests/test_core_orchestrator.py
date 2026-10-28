@@ -238,4 +238,4 @@ def test_untrusted_values_never_reach_a_shell(orchestrator, tmp_path, policy):
     argv = json.loads(orchestrator.store.artifact_path(job.output_artifacts[0]).read_text())
     # The adapter receives exactly one extra argument pair: the request flag and path.
     assert argv[-2] == "--aegis-request"
-    assert argv[-1].endswith("adapter/request.json")
+    assert argv[-1].replace("\\", "/").endswith("adapter/request.json")

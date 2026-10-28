@@ -256,7 +256,10 @@ def _parse_result(stdout: bytes, limit: int) -> tuple[AdapterResult | None, Erro
 
 def _kill_process_group(proc: subprocess.Popen[bytes]) -> None:
     try:
-        os.killpg(proc.pid, signal.SIGKILL)
+        if hasattr(os, 'killpg'):
+            os.killpg(proc.pid, signal.SIGKILL)
+        else:
+            proc.kill()
     except ProcessLookupError:
         pass
     except OSError:
