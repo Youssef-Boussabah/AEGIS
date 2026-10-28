@@ -8,7 +8,7 @@ Role **B** · branch `feat/lab-mirage` · [issue #10](https://github.com/Youssef
 
 A manifest is a **declaration**. Its digests are the author's claims, and matching manifest fields do not prove that a comparison is scientifically fair. Three kinds of record are kept separate: declared configuration (the manifest), checked evidence (not implemented) and attack outcomes (not implemented).
 
-**The manifest does not run an attack.** It does not integrate REA, Ghidra, Nebius, generated-code execution, AEGIS Core, or any security scoring. Any claims of attack resistance require a later independent scoring implementation. The authorization field here is *audit metadata*, not permission: actual execution must still satisfy **both** Core gates (`[attack_lab] enabled` and `AttackLabAuthorization`). Nothing in the present Core adapter runner is a sandbox for generated programs.
+**The manifest does not run an attack.** It does not integrate REA, Nebius, generated-code execution, AEGIS Core, or any security scoring. Any claims of attack resistance require a later independent scoring implementation. The authorization field here is *audit metadata*, not permission: actual execution must still satisfy **both** Core gates (`[attack_lab] enabled` and `AttackLabAuthorization`). Nothing in the present Core adapter runner is a sandbox for generated programs.
 
 ## Install and test (from repository root)
 
@@ -84,7 +84,7 @@ Linking the manifest's authorization reference to Core's `AttackLabAuthorization
 ## Subsequent increments
 
 1. Add a **trial runner contract** and outcome classifier, with no false success on errors or incomplete comparisons.
-2. Integrate **Ghidra** analysis under bounded trusted subprocess execution, with pinned versions and saved structured evidence.
+2. Integrate **Ghidra** analysis under bounded trusted subprocess execution, with pinned versions and saved structured evidence. *Standalone export implemented in Phase 2 (below); not yet connected to a trial runner or Core adapter.*
 3. Integrate a **Nebius model provider** with pinned identity, explicit token budgets and sanitized traces.
 4. Implement **isolated compilation and scoring** of agent-generated candidate implementations, with hidden tests outside the attacker environment.
 5. Implement a separate **REA workflow adapter** using the same record, scoring and budget contract, noting which internal tools REA invokes.
@@ -92,3 +92,175 @@ Linking the manifest's authorization reference to Core's `AttackLabAuthorization
 7. Build **Mirage** decoys with no-decoy controls and measure functional equivalence, retention, overhead and reconstruction outcomes.
 
 This module remains independent of ImageLab, PhotoCraft, reVC and Mattermost; no target-name logic is allowed in the generic code. Hold out unseen software during effectiveness evaluation.
+
+## Phase 2: bounded local Ghidra evidence export
+
+`aegis_lab.ghidra` is a **standalone local analysis command**. It runs a
+trusted Ghidra `analyzeHeadless` installation on an *authorized local binary*
+and publishes one versioned JSON record, `ghidra-analysis.json`
+(`schema_version="aegis.lab.ghidra.v1"`). The bundled post-script
+`scripts/AegisExportFunctions.java` exports Ghidra's own SHA-256 of the imported
+program and, for each selected function, its name, namespace-qualified name,
+entry point, thunk flag, database signature, decompiler signature, bounded
+decompiled C, decompilation status and bounded decompiler message. The default
+exporter path assumes a source checkout or editable install.
+
+```sh
+.venv/bin/python -m aegis_lab.ghidra \
+  --binary /tmp/aegis-ghidra-smoke/sample \
+  --headless "$HOME/Applications/ghidra_12.1.4_PUBLIC/support/analyzeHeadless" \
+  --expected-ghidra-version 12.1.4 \
+  --expected-sha256 <64-hex digest of the authorized input> \
+  --function add \
+  --output-dir /tmp/aegis-ghidra-run-1
+```
+
+Options: `--function` (exact name, namespace-qualified name, or `*` for all
+functions up to `--max-functions`, 1–512, default 64), `--max-c-chars` (100–20000,
+default 12000), `--decompile-timeout` (per function, 1–120 s, default 30),
+`--analysis-timeout` (Ghidra auto-analysis, 1–600 s, default 120) and
+`--wall-timeout` (whole run, 1–3600 s, default 300). The command exits 0 and
+prints the report path only on success. A rejected run exits 1 and prints
+`AEGIS Ghidra analysis failed [<category>]: <reason>`, an unexpected internal
+failure exits 3, and invalid arguments exit 2 (see *Error output* below).
+
+### What the worker guarantees
+
+- **Input identity.** The input must be a non-empty regular file (no symlinks,
+  at most 64 MiB). It is copied into a private 0700 temporary directory while
+  being hashed. Ghidra analyzes only that copy, which is re-hashed afterwards.
+  `--expected-sha256` is checked before Ghidra starts. The exporter script is
+  likewise copied and hashed before use. The launcher and the installation's
+  `Ghidra/application.properties` are hashed too. Ghidra's own digest of the
+  imported program (`analysis.executable_sha256`) must equal the worker's.
+- **File loading.** The input, exporter, launcher, `application.properties` and
+  Ghidra's raw export are all read under the `safe_io` policy: the final path
+  component must not be a symlink (parent directories are resolved normally);
+  files are opened non-blocking, so a FIFO, socket or device is rejected instead
+  of waited on; reads are bounded (input 64 MiB, launcher and exporter 1 MiB,
+  `application.properties` 64 KiB, raw export 4 MiB) and an oversized file is
+  rejected from `fstat` before any byte is read; a file that changes while it is
+  read is rejected. Filesystem errors become fixed categories, never OS messages.
+- **Strict raw JSON.** The raw export is parsed with the same strict parser as
+  manifests: duplicate keys (for example two contradictory `analysis_timed_out`
+  values), `NaN`/`Infinity`, overflowing numbers, invalid UTF-8 and malformed
+  JSON are rejected before schema validation.
+- **Tool identity.** The exporter reports the running Ghidra version, release,
+  build date and Java version. The worker rejects a run whose runtime version
+  differs from the installation's `application.properties`. `--expected-ghidra-version`
+  pins the version before Ghidra starts. A launcher outside a Ghidra installation
+  layout is rejected.
+- **Process control.** Ghidra runs from an argument array (no shell) in its own
+  process group, with a minimal environment (`PATH`, `JAVA_HOME`, `LANG`,
+  `LC_ALL` only; no provider tokens). `HOME`, the settings and cache
+  directories, and Java's temporary directory all point inside the private
+  directory. The whole group is killed after the run, on wall timeout, and on
+  interruption. The private directory, including the Ghidra project, is
+  always removed. Selectors starting with `-` or containing control characters
+  are rejected because Ghidra would treat them as options.
+- **No false success.** Ghidra 12.1.x exits 0 and still runs post-scripts when
+  auto-analysis times out or a script throws. The worker therefore rejects
+  any of the following: a non-zero exit, Ghidra's `REPORT: Analysis timed out` or
+  `REPORT SCRIPT ERROR` log markers (detected over the full output stream), the
+  exporter's `analysis_timed_out` flag, a missing, oversized (> 4 MiB) or
+  schema-invalid export, and a changed input. The remaining rules are the
+  **report invariants** below.
+- **Report invariants.** `aegis_lab.ghidra.analysis_violations` and
+  `report_violations` are the single definition, applied by the worker before
+  publication and by every `AnalysisReport` when it is constructed or parsed.
+  A report is invalid if analysis timed out;
+  the program name or Ghidra's executable digest differs from `binary`; a
+  function does not match an exact selector; there are more functions than
+  `max_functions` or fewer than the exporter's own count implies; decompiled C
+  exceeds `max_c_chars` (measured in UTF-16 units, as Java counts) or a
+  truncation flag is inconsistent with the length; two functions share an entry
+  point; no function matched; an exact selector matched more than one function
+  (an **ambiguity error**, for example two `static` functions with one name);
+  the exactly selected function failed to decompile; no function decompiled; or
+  versions, runtime fields, counts or `log_truncated` are inconsistent.
+  Violations are reported as `<field path>: <reason>` codes. With `*`,
+  per-function failures are recorded and counted (`decompiled_ok_count`,
+  `decompile_failed_count`) as long as one function succeeded.
+- **Decompiler outcomes.** Each function has `decompile_status`: `completed`,
+  `completed_with_warnings` (success whose `DecompileResults.getErrorMessage()`
+  was not empty), `timed_out`, `cancelled`, `failed_to_start` or `failed`.
+  `decompiler_message` keeps that message independently of success (at most 2000
+  UTF-16 units, `decompiler_message_truncated`); `error` is set only for failures.
+  Warnings and truncation are reported in the per-function fields and in
+  `limitations`; they are not failures. Auto-analysis timeout is the
+  program-level `analysis_timed_out` and is always a failure. In local checks
+  with Ghidra 12.1.4 on x86-64 Linux ELF (463 successful functions across two
+  AEGIS fixtures and a copy of a system binary, 2026-10-28), `getErrorMessage()`
+  was empty for every successful function, and Ghidra wrote warnings as
+  `/* WARNING: ... */` comments inside `decompiled_c`. Those inline comments are
+  **not** classified as warnings, and `completed_with_warnings` is covered by
+  offline tests only.
+- **Bounded, shareable output.** Output is drained through a pipe. Only the last
+  128 KiB of the log are kept (`log_bytes_total`, `log_truncated`). The
+  scratch path, Ghidra installation path, home directory and account name are
+  replaced with `<scratch>`, `<ghidra>`, `~` and `<user>` on a best-effort basis.
+  The report is re-parsed with the strict report parser, written to a temporary
+  file and hard-linked into place, so it appears complete or not at all and never
+  replaces an existing report. The output directory is opened once before Ghidra
+  starts and all publication is relative to that descriptor; if the path was
+  replaced or removed in the meantime (for example by a symlink), nothing is
+  published.
+
+### Error output
+
+Messages are built from fixed text, integers, the caller's own validated
+selector and pattern-checked version strings only. They never contain rejected
+JSON values, unknown field names, local paths, operating-system messages, Ghidra
+log lines or exporter-controlled strings (function names, decompiler errors);
+schema errors are shown as `<field path>: <category>` as for manifests.
+Everything printed is additionally escaped for non-printable characters and
+bounded. Argument errors name the option but never repeat its value. For
+programmatic callers, `WorkerError` carries `category`, `violations` (codes) and
+`log_tail` (the redacted, bounded Ghidra output, which is not printed).
+
+### Compatibility and limitations
+
+- Validated only with **Ghidra 12.1.4 PUBLIC** (Java 21.0.12) on x86-64 Linux ELF
+  inputs. The exporter extends `HeadlessScript`, so it runs only under
+  `analyzeHeadless`. Other versions run but receive a stated limitation in
+  the report.
+- This command is **not** an `aegis.adapter.v1` attack backend and must not be
+  presented as one. It does not implement or bypass Core's two authorization
+  gates. Analyze only owned or explicitly authorized files.
+- Ghidra parses untrusted formats. This runner is bounded execution, **not** a
+  sandbox for hostile binaries. No input or agent-generated code is executed.
+- Decompilation output is analysis evidence, not a verified behavioral
+  reconstruction, attack result, or security score. Reports reveal function
+  names and code: treat them as build artifacts.
+- Ghidra's launcher starts a short-lived helper JVM (`LaunchSupport`) that
+  does not receive the worker's JVM options. It may briefly create a perf file
+  under `/tmp/hsperfdata_<user>`; no input-derived data was observed there.
+- A `*` export that exceeds the 4 MiB limit fails rather than being partially
+  published; lower `--max-functions` or `--max-c-chars`.
+- The launcher is hashed and then executed by path; a substitution between the
+  two is not detected. The launcher and installation are trusted local tools.
+- Reports are not signed. The worker cannot show which process produced a
+  report file.
+- On failure the CLI no longer prints Ghidra's log tail; use `WorkerError.log_tail`
+  from Python to debug a failing Ghidra run.
+
+### Tests
+
+`tests/test_ghidra.py` contains 107 offline worker tests. They mock Ghidra's
+command line and **cannot** prove that the Java exporter works. They cover the
+report invariants, strict raw JSON, decompiler outcomes, FIFO/symlink/oversized
+file substitution, output-directory replacement and CLI output with synthetic
+secrets. `tests/test_ghidra_real.py` runs the real exporter: it compiles fresh
+AEGIS-owned fixtures (never executed). It checks a distinctive decompiled
+function against the ELF symbol table, that ambiguous and missing selectors
+fail, that a 1 s auto-analysis timeout fails closed, and that a wall timeout
+leaves no process running in the worker's scratch directory. Those 5 tests
+are skipped (not run) unless enabled:
+
+```sh
+AEGIS_GHIDRA_HEADLESS="$HOME/Applications/ghidra_12.1.4_PUBLIC/support/analyzeHeadless" \
+  .venv/bin/python -m pytest attack_lab/tests -q
+```
+
+Future AEGIS adapter integration requires both existing authorization gates
+and a separate architecture review.
