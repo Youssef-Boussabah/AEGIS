@@ -15,10 +15,13 @@ failed ones.
 | HTTP API (FastAPI) | `platform/api/` | implemented, tested |
 | CLI (`aegis`) | `platform/cli/` | implemented, tested |
 | AEGIS Shield LLVM pass | `protectors/llvm/` | prototype, tested on its own; **no established security property** |
-| Shield ↔ core adapter | (none yet) | **not implemented**: AEGIS cannot invoke the Shield yet |
+| Shield ↔ core adapter | `protectors/llvm/adapter/` | implemented; explicit registration, textual IR and LLVM 22 |
 
 AEGIS ships with **no registered protection backend**. Until an adapter is
 registered in `aegis.toml`, `aegis protect` fails with `UNSUPPORTED_BACKEND`.
+For real Shield jobs, follow the [adapter registration and CLI instructions](protectors/llvm/adapter/README.md).
+Zero-transform runs fail explicitly; a successful transformation establishes no
+security guarantee.
 
 ## Repository layout
 

@@ -1,7 +1,8 @@
 # AEGIS architecture
 
-This document describes what is implemented on `dev/integration` as of commits
-`9a11c89` (LLVM Shield prototype) and `1dd99c4` (core platform). Planned work is
+This document describes the LLVM Shield prototype, core platform, and milestone
+002 adapter on `feat/llvm-adapter`, based on `dev/integration` at `65f2ceb`.
+Planned work is
 marked **planned** and is not implemented. If this document and the code
 disagree, the code is right and this document has a bug.
 
@@ -26,7 +27,7 @@ disagree, the code is right and this document has a bug.
                                                   │ adapter executable       │
                                                   │ (registered in aegis.toml)│
                                                   └──────────────────────────┘
-                                                            ┊ planned, not implemented
+                                                            │ LLVM Shield adapter
                                                             ▼
                                                   protectors/llvm  (AegisShield.so,
                                                   run through LLVM `opt`)
@@ -37,7 +38,8 @@ disagree, the code is right and this document has a bug.
 | `core/` | `aegis-core` / `aegis_core` | Python ≥3.11, hatchling | implemented |
 | `platform/api/` | `aegis-api` / `aegis_api` | Python, FastAPI + uvicorn | implemented |
 | `platform/cli/` | `aegis-cli` / `aegis_cli` | Python, stdlib `argparse` | implemented |
-| `protectors/llvm/` | AEGIS Shield (`AegisShield.so`) | C++20 LLVM pass plugin, CMake, LLVM ≥22 | prototype; **not connected to `aegis_core`** |
+| `protectors/llvm/` | AEGIS Shield (`AegisShield.so`) | C++20 LLVM pass plugin, CMake, LLVM ≥22 | prototype; connected through adapter below |
+| `protectors/llvm/adapter/` | LLVM Shield adapter | Python ≥3.11, POSIX, stdlib | implemented; textual IR, LLVM 22, explicit registration |
 
 The Python packages are named `aegis_*` because a top-level package called
 `platform` would hide the standard-library `platform` module.
@@ -57,7 +59,8 @@ These rules reflect the current imports and must stay true:
    JSON files it exchanges.
 4. `protectors/llvm/` is self-contained. Its own `README.md` says it requires
    and modifies no root build or shared contract. Its test and benchmark tooling
-   uses only the Python standard library.
+   uses only the Python standard library. Its adapter runtime is also stdlib;
+   the separate adapter integration tests use core/CLI and pytest.
 5. There is no root build. Each component is built and tested on its own (see
    `README.md` and ADR 0001). The root `pyproject.toml` only configures pytest
    to run the three Python suites together.
@@ -124,8 +127,9 @@ In summary:
 - All artifact hashes (SHA-256) are computed by the orchestrator, not taken
   from the adapter.
 
-The only adapter in the repository is `aegis_core.testing.fake_adapter`, a
-protocol test double that applies **no** protection.
+The real LLVM Shield adapter is described in §7. The other adapter,
+`aegis_core.testing.fake_adapter`, is a protocol test double that applies **no**
+protection and must never be registered as a real backend.
 
 ## 5. Job lifecycle and storage
 
@@ -177,43 +181,46 @@ change:
 - **LLVM Shield.** Its own README states it has **no established security
   property**. Nothing in AEGIS may present Shield output as protection against
   reverse engineering or tampering.
+  The adapter accepts textual IR only, never executes native inputs/outputs,
+  bounds files and diagnostics, and validates local reports and emitted IR.
+  This is not a sandbox for LLVM parser bugs or malicious operator plugins.
 
-## 7. LLVM Shield integration (planned, not implemented)
+## 7. LLVM Shield integration (milestone 002)
 
-**Current state:** `protectors/llvm` builds `AegisShield.so`, a module pass
-named `aegis-shield` that `opt` runs explicitly. It reads its options from the
-pass pipeline string (`seed`, `max-sites`, `enabled`, `config`, `report`).
-Optionally it writes a local JSON report (`urn:aegis-shield-llvm:report:1`).
-`aegis_core` has **no** adapter for it. With any current configuration,
-`aegis protect --backend <anything-shield>` fails with `UNSUPPORTED_BACKEND`.
-
-The integration needs **no change to either side's existing schemas**. It is a
-new adapter executable that speaks `aegis.adapter.v1` on one side and drives
-`opt` on the other. The constraints below come from reading both
-implementations and from manually running `opt` with the job directory layout:
+`protectors/llvm/adapter/aegis_llvm_adapter.py` speaks `aegis.adapter.v1` and
+drives the real `AegisShield.so` through LLVM 22 `opt`. It is owned by the LLVM
+integration module. Neither existing schema nor core/API/CLI implementation is
+changed. See [ADR 0002](docs/adr/0002-llvm-shield-adapter.md) and the
+[adapter README](protectors/llvm/adapter/README.md) for registration, commands,
+test invocation and operational limits.
 
 | Concern | How the existing contracts fit |
 | --- | --- |
-| Registration | an `[adapters.<name>]` entry with `tasks = ["protect"]`. The Shield has no attack capability, so it must not declare `attack_lab`. The backend name is the operator's choice within `^[a-z0-9][a-z0-9_-]{0,63}$`; `aegis-shield-llvm`, the value of the report's `backend` field, would fit. |
-| Tool locations | the plugin `.so` and `opt` paths belong in the adapter's `command` argv in `aegis.toml` (operator-trusted), not in request options. Plugin and `opt` must come from the same LLVM build (ABI dependency). |
-| Input | the AEGIS input artifact must be LLVM IR, not a linked binary. Textual `.ll` is what the Shield's tests exercise; bitcode is untested. The Shield only transforms functions annotated `aegis.protect`. |
-| Options | AEGIS `options` map to pass options: `seed` (decimal uint64; send as a **string**, matching the Shield config schema, because JSON numbers above 2^53 are unsafe), `max-sites` (0–1,000,000), `enabled`. The adapter must validate them and reject anything else. The Shield gives pipeline metacharacters (`; , < > ( )`) no escaping. |
-| Paths | the adapter must **not** put absolute store paths into the pass pipeline: the operator-configurable store root may contain pipeline metacharacters, and `opt` then rejects the pipeline (verified). Its working directory is always `<job>/work`, so `../inputs/<name>` and `../outputs/<file>` are fixed relative paths without metacharacters. These relative paths also keep absolute local paths out of the Shield report's `module` field (verified: it records `../inputs/<name>`). |
-| Invocation | `opt -load-pass-plugin <so> "-passes=aegis-shield<seed=…;max-sites=…;report=../outputs/shield-report.json>,verify" -S ../inputs/<name> -o ../outputs/<name>.protected.ll`, as an argv array with `shell=False`. A nonzero `opt` exit maps to `status: "failed"` / `ADAPTER_FAILED`. |
-| Outputs | `outputs` = the transformed IR and `shield-report.json`. Both are hashed by the orchestrator. |
-| Evidence | Shield report facts (LLVM version, `transformed_sites`, per-function `reason`) become adapter `evidence[]` entries. They are recorded with `source: "adapter"`, as claims; the AEGIS contract offers no stronger status for them. |
-| Zero transformations | `opt` exits 0 with `transformed_sites: 0` when no function is annotated (verified). The adapter must not report that as a successful protection; see open issue A3. |
+| Registration | Operator adds `[adapters.<name>]`, command = absolute Python/script paths plus `--opt` and `--plugin`, tasks = `["protect"]`. No defaults and no attack-lab support. |
+| Tool locations | Paths belong in the operator-trusted command, never request options. Plugin path is absolute; opt is absolute or a bare PATH name. Requires LLVM 22.x and a plugin built from the same LLVM installation; the loaded report's LLVM version must match opt's probe. |
+| Input | Textual LLVM IR only; LLVM validates content. Only eligible functions annotated `aegis.protect` transform. Bitcode/native formats are rejected; the adapter never compiles or executes native artifacts. |
+| Options | Only string decimal uint64 `seed`, integer `max-sites` (0–1,000,000), boolean `enabled`. Explicit conversion to integer-versioned local config (`max_sites_per_function`). CLI seeds need JSON quotes, e.g. `--option 'seed="42"'`. |
+| Paths | Validates core's job layout, safe input name, absolute input/output paths, empty outputs, and rejects symlinks/hardlinked artifacts. Stages a hash-checked input/config in a private work subdirectory. Only fixed relative names enter LLVM arguments. Store paths may contain pipeline metacharacters. Relative storage roots resolve against config; command path arguments are not rebased by core. |
+| Invocation | argv array, shell=False, fixed pipeline `aegis-shield<config=shield-config.json;report=shield-report.json>,verify`, input `shield-input.ll`, output `protected.ll`. Runs a separate plugin-free LLVM verifier after validating the report. |
+| Execution bounds | LLVM inherits core's process group and wall timeout, with a minimal environment and bounded file-backed diagnostics. POSIX per-file size cap plus polling/final checks enforce output/report limits. Not an aggregate disk/memory/CPU quota or compiler sandbox. |
+| Outputs | Nonempty `protected.ll` and `shield-report.json`, published exclusively. Core computes both artifact hashes. Failed jobs register no outputs. |
+| Evidence | LLVM version, `transformed_sites`, effective config and counts by function reason become bounded adapter claims (`source: "adapter"`). Detailed per-function facts remain in the report artifact. No security metrics are inferred. |
+| Zero transformations | `status: "failed"`, adapter code `NO_TRANSFORMATIONS_APPLIED`. Core preserves this in `ADAPTER_FAILED` details. A zero opt exit is insufficient for success. |
 
-Where this adapter lives (for example `protectors/llvm/adapter/`) and who
-owns it is undecided (open issue A1).
+The report is checked against its existing local schema and invocation-specific
+invariants (module, LLVM version, config, totals, ordered unique sites, selection,
+budget, status and reason consistency). Success records reported arithmetic
+expansions and verified IR, with **no established security property**. Private
+partial files may remain after a hard timeout or failed publication; failed jobs
+never register them as outputs.
 
 ## 8. Open architecture issues
 
 | ID | Issue |
 | --- | --- |
-| A1 | **No LLVM Shield adapter exists**, and its home and owner are undecided. Until it exists, AEGIS cannot invoke the Shield. |
-| A2 | Two independent schema conventions: `aegis_core` uses `schema_version: "1"` (string) and the protocol id `aegis.adapter.v1`; the Shield uses `schema_version: 1` (integer) and `urn:aegis-shield-llvm:*` ids. Its README calls its schemas *local, provisional* and asks for reconciliation with any shared contract. They don't conflict today, because Shield reports travel as opaque output artifacts. |
-| A3 | Success semantics for no-op protection: `aegis_core` rejects a `protect` success with zero **outputs**, but cannot tell that an output is unchanged. An adapter-level rule (for example, fail when `transformed_sites == 0`) or a core-level field is needed. |
+| A1 | **Resolved in milestone 002:** LLVM integration owns `protectors/llvm/adapter/`; explicit registration connects Shield to core. |
+| A2 | **Resolved for milestone 002:** independent schema versions remain intact; the adapter explicitly converts config and validates the local Shield report, published as an artifact. |
+| A3 | **Resolved for Shield:** zero transformed sites fail with `NO_TRANSFORMATIONS_APPLIED`. Generic core protection-effectiveness semantics remain backend-specific. |
 | A4 | API jobs run in-process as background tasks. A server stop mid-run leaves a job `running`; there is no recovery or queue. |
 | A5 | Adapter stdout/stderr are read fully into memory. `max_stdout_bytes` is checked after the process exits, not while it streams. |
 | A6 | No `main` branch exists locally and there is no remote-tracking branch, so the promotion path from `dev/integration` is undefined. There is also no CI; validation is manual (see `AGENTS.md`). |

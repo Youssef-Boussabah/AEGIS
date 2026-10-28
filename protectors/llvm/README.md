@@ -4,6 +4,10 @@ This directory is a standalone C++20 LLVM new-pass-manager plugin. Version 0.1
 implements a deterministic arithmetic expansion on explicitly selected integer
 functions. It is a compiler prototype, with **no established security property**.
 No root build, other protector, or shared contract is required or modified.
+Milestone 002 adds a standalone [core adapter](adapter/README.md) under
+`adapter/`: it registers explicitly in `aegis.toml`, accepts textual IR jobs,
+and rejects zero-transform runs with `NO_TRANSFORMATIONS_APPLIED`. The plugin's
+schemas and standalone build remain unchanged.
 
 ## Build and test
 
@@ -74,11 +78,11 @@ overflow flags and are skipped.
 
 ## Options and local contracts
 
-No shared schemas or substantive root guidance existed in the initial
-repository: root `AGENTS.md`, `README.md`, and architecture files were empty.
-The files in [schemas/](schemas/) are **local, provisional contracts**, not
-assumed integrations with other AEGIS modules. Their v1 identifiers and field
-names must be reconciled with any future shared contract by its owner.
+The files in [schemas/](schemas/) remain **local, provisional contracts**.
+The [adapter](adapter/README.md#options-and-conversion) explicitly translates
+core options into local config and validates local reports, without changing
+either schema or importing the backend into core. The local report remains an
+output artifact; its facts are adapter claims, not verified security evidence.
 
 Options are semicolon-separated inside a single quoted pass element:
 
