@@ -1,0 +1,34 @@
+# Package-level .gitignore files (core/, platform/api/, platform/cli/,
+# protectors/llvm/) still apply; these rules cover the whole repository.
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+build/
+dist/
+
+# CMake / LLVM out-of-tree builds (build in /tmp or a build*/ directory)
+/build*/
+CMakeCache.txt
+CMakeFiles/
+*.so
+*.o
+
+# AEGIS local runtime state: artifact store and per-developer config
+.aegis/
+/aegis.toml
+
+# Secrets: only the documented template may be committed
+.env
+.env.*
+!.env.example
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store

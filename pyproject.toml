@@ -1,0 +1,16 @@
+# Repository-level tooling only. This file deliberately has no [project] or
+# [build-system] table: the root is not an installable package.
+#
+# Python packages each carry their own pyproject.toml and are installed
+# together in editable mode (see README.md#setup):
+#   core/          -> aegis-core  (import aegis_core)
+#   platform/api/  -> aegis-api   (import aegis_api)
+#   platform/cli/  -> aegis-cli   (import aegis_cli)
+# protectors/llvm/ is a CMake project and is not part of the Python build.
+
+[tool.pytest.ini_options]
+# `pytest` from the repository root runs every Python package suite.
+# Running pytest inside a package directory uses that package's own settings.
+# The LLVM integration suite is driven by CTest, not pytest (see AGENTS.md).
+testpaths = ["core/tests", "platform/api/tests", "platform/cli/tests"]
+addopts = "-ra"
