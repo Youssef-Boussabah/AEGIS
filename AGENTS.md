@@ -7,7 +7,7 @@ module, but it may not loosen these.
 
 ## 1. Module ownership (four active workstreams)
 
-See [docs/TEAM_WORKSTREAMS.md](docs/TEAM_WORKSTREAMS.md) and the four current umbrella issues [#9](https://github.com/Youssef-Boussabah/AEGIS/issues/9), [#10](https://github.com/Youssef-Boussabah/AEGIS/issues/10), [#11](https://github.com/Youssef-Boussabah/AEGIS/issues/11), and [#12](https://github.com/Youssef-Boussabah/AEGIS/issues/12). This four-person split replaces the historical six-person assignment in the two baseline PDFs, but does not change the technical contracts.
+See [docs/TEAM_WORKSTREAMS.md](docs/TEAM_WORKSTREAMS.md) and the four current umbrella issues [#9](https://github.com/Youssef-Boussabah/AEGIS/issues/9), [#10](https://github.com/Youssef-Boussabah/AEGIS/issues/10), [#11](https://github.com/Youssef-Boussabah/AEGIS/issues/11), and [#12](https://github.com/Youssef-Boussabah/AEGIS/issues/12). Both PDFs use these same four roles. Roles describe technical responsibility, not named people or availability. The reorganization does not change technical contracts.
 
 | Path | Primary workstream | Notes |
 | --- | --- | --- |
@@ -21,13 +21,14 @@ See [docs/TEAM_WORKSTREAMS.md](docs/TEAM_WORKSTREAMS.md) and the four current um
 
 Do not edit outside assigned paths without explicit approval. Shared changes to `aegis_core.models`, `core/docs/adapter-protocol.md`, Core storage/authorization, backend local schemas, or public API need approval by A and the affected owner. Team members and coding agents must never weaken the dual attack-lab authorization gates, invent security evidence, or silently add test-specific special cases.
 
-The old `feat/core-platform` and `feat/llvm-shield` branch names in previous documentation describe historical work, not today's ownership. Actual git branch state is authoritative.
+The four workstream branches are `feat/core-shield`, `feat/lab-mirage`, `feat/frontend`, and `feat/signature-sentinel`. Historical branch names in ADRs describe earlier work. Follow [CONTRIBUTING.md](CONTRIBUTING.md) for checkout, synchronization and PR instructions.
 
 ## 2. Branches and commits
 
 - `dev/integration` is the public default integration branch. Prefer reviewed PRs for new work; earlier milestones also used cherry-picks. A release branch is not yet defined.
-- Do feature work on a new branch created from `dev/integration` (or from the
-  commit the task names), named:
+- Use the existing workstream branch for its coordinated work, or a short task
+  branch created from current `origin/dev/integration`. Both target `dev/integration`
+  through a PR. Name task branches:
   - `feat/<area>` for features
   - `fix/<area>` for fixes
   - `docs/<topic>` for documentation

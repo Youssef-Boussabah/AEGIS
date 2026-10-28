@@ -10,6 +10,12 @@
 - Real ImageLab job `4001e5aceb144882a21a2f6653e52fb3`: **43 reported arithmetic transformation sites across three kernels**; reconstructed application using the CLI job's external IR and **11/11 ImageLab CTests passed**, as reported in user terminal output.
 - The current real backend only handles selected textual LLVM 22 IR and outputs `protected.ll` plus `shield-report.json`. The tool does **not** protect arbitrary software or demonstrate attacker resistance.
 
+## Four-role revision validation (28 October 2026)
+
+- `.venv/bin/pytest -q`: **105 passed**, one existing Starlette/httpx deprecation warning, Python 3.12.14 with the repository dependency constraints. This covers Core/API/CLI only.
+- LLVM Shield CTest, the real adapter suite and ImageLab CTest: **not run** in the documentation workspace because matching LLVM/Clang, CMake and Ninja are unavailable. The historical 199-test result above is not a new result.
+- Revised PDFs were rendered and inspected; four-role references, local Markdown links and whitespace were checked. No runtime implementation was changed.
+
 ## In progress / planned
 
 | Workstream | Issue | State |
@@ -23,7 +29,7 @@
 ## Immediate integration blockers
 
 - CI and protected-branch rules have not been demonstrated as enabled.
-- Root `AGENTS.md`, `ARCHITECTURE.md` and README require updated ownership and module listings (address in the four-person governance PR).
+- The four-role revision aligns root guidance, the two PDFs, contribution instructions and issues #9–#12. The feature branches must receive the accepted revision before engineering begins; follow CONTRIBUTING.md without resetting branches containing work.
 - Shared API enhancements for artifact retrieval/listing require deliberate review and safe path handling.
 - A genuine reconstruction comparison is needed before advertising effective reverse-engineering resistance.
 

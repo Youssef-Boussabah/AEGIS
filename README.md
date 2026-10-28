@@ -27,9 +27,10 @@ security guarantee.
 
 ## Start here
 
-- [AEGIS User Guide](docs/AEGIS_USER_GUIDE.pdf) — concise project and teammate introduction (frozen baseline `c995857`).
-- [AEGIS Technical Documentation](docs/AEGIS_TECHNICAL_DOCUMENTATION.pdf) — full architecture, exact contracts, runbook and agent brief (same frozen baseline).
-- [Four-person team ownership](docs/TEAM_WORKSTREAMS.md) — **current** assignments: A Core/Shield/Integration; B Lab/Mirage; C Frontend; D Signature/Sentinel.
+- [AEGIS User Guide](docs/AEGIS_USER_GUIDE.pdf) — project introduction, four roles and first steps.
+- [AEGIS Technical Documentation](docs/AEGIS_TECHNICAL_DOCUMENTATION.pdf) — architecture, contracts, runbook and detailed briefs for the same four roles. Historical implementation evidence remains attributed to `c995857`.
+- [Four engineering roles](docs/TEAM_WORKSTREAMS.md) — A Core/Shield/Integration; B Lab/Mirage; C Frontend; D Signature/Sentinel. No person assignments.
+- [Contributing](CONTRIBUTING.md) — branch map, checkout, synchronization and review workflow.
 - [Project status](docs/PROJECT_STATUS.md) — historical evidence, pending work, and update protocol.
 - [Contributor/agent rules](AGENTS.md) and [architecture](ARCHITECTURE.md) — current repository guidance.
 
@@ -76,7 +77,7 @@ Ninja. See [protectors/llvm/README.md](protectors/llvm/README.md).
 ## Tests
 
 ```bash
-.venv/bin/pytest                                   # all Python suites
+.venv/bin/pytest                                   # Core, API and CLI only
 cmake -S protectors/llvm -B /tmp/aegis-shield-build -G Ninja \
   -DLLVM_DIR="$(llvm-config --cmakedir)" \
   -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release

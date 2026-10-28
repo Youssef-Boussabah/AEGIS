@@ -1,6 +1,6 @@
 # AEGIS architecture
 
-This is a living repository architecture note. The original technical baseline was recorded at `c995857` on `dev/integration`; the team PDFs in `docs/` retain that version. The current workstream organization and status are in [TEAM_WORKSTREAMS.md](docs/TEAM_WORKSTREAMS.md) and [PROJECT_STATUS.md](docs/PROJECT_STATUS.md). Planned work is marked **planned** and is not implemented. If this document and the code
+This is a living repository architecture note. The original implementation evidence was recorded at `c995857` on `dev/integration`; the revised PDFs retain that evidence and use the current four-role organization. The current workstream organization and status are in [TEAM_WORKSTREAMS.md](docs/TEAM_WORKSTREAMS.md) and [PROJECT_STATUS.md](docs/PROJECT_STATUS.md). Planned work is marked **planned** and is not implemented. If this document and the code
 disagree, the code is right and this document has a bug.
 
 ## Four active engineering streams (28 October 2026)
@@ -8,7 +8,7 @@ disagree, the code is right and this document has a bug.
 - **A — Core Platform, Shield & Integration:** `core/`, `platform/api/`, `platform/cli/`, `protectors/llvm/` including `adapter/`, `demo/image_processor/`, governance and CI. See issue #9.
 - **B — Adversarial AI Lab & Mirage:** `attack_lab/` and `protectors/mirage/` (planned), issue #10.
 - **C — Frontend & Product Experience:** `platform/dashboard/` (planned), issue #11.
-- **D — Signature, Sentinel & Verification:** `provenance/` and `sentinel/` (planned), issue #12. First deliverable is offline signed provenance; D has limited availability.
+- **D — Signature, Sentinel & Verification:** `provenance/` and `sentinel/` (planned), issue #12. First deliverable is offline signed provenance; policy and watermark research follow separately.
 
 Issue #7 separately coordinates cross-ecosystem tests using PhotoCraft, the reVC branch of re-GTA, and Mattermost. ImageLab remains the controlled internal regression target. Protectors must never use benchmark names or target-specific answer logic. See [ownership and dependencies](docs/TEAM_WORKSTREAMS.md).
 
@@ -232,5 +232,5 @@ never register them as outputs.
 | A4 | API jobs run in-process as background tasks. A server stop mid-run leaves a job `running`; there is no recovery or queue. |
 | A5 | Adapter stdout/stderr are read fully into memory. `max_stdout_bytes` is checked after the process exits, not while it streams. |
 | A6 | The repository's public default branch is `dev/integration`. No release branch or required CI was confirmed at this revision; release/branch-protection policy must be agreed and implemented. |
-| A7 | Python 3.14 is the only verified interpreter, although packages declare `>=3.11`. LLVM 22.1.8 is the only verified LLVM. |
+| A7 | The recorded full integration run used Python 3.14 and LLVM 22.1.8. The four-role documentation revision also passed the 105 Core/API/CLI tests on Python 3.12.14; native integration was not rerun there. Packages declare `>=3.11`. |
 | A8 | `.env.example` is empty. The runtime environment variables in use are `AEGIS_CONFIG` and `AEGIS_API_TOKEN`. |

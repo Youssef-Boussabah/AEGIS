@@ -1,8 +1,8 @@
 # AEGIS: four-person engineering workstreams
 
-**Active plan — 28 October 2026.** Four technical workstreams, independent of who takes each role. The PDF references are being revised to carry the same four-workstream plan. The existing architectural and test baseline remains `c995857`; later repository source and tests determine current behavior.
+**Active plan — 28 October 2026.** Four technical workstreams, independent of who takes each role. Both PDFs carry this same plan: User Guide pages 3–4 and Technical Documentation section 10 (A–D). Historical implementation evidence remains attributed to `c995857`; current source and tests determine behavior.
 
-## Four owners
+## Four roles
 
 | Stream | Workstream branch | GitHub issue | Owned implementation paths |
 |---|---|---|---|
@@ -33,7 +33,7 @@ Ownership means first reviewer and primary editor, not permission to break share
 ## Contribution and first-day workflow
 
 1. Read [User Guide](AEGIS_USER_GUIDE.pdf), [Technical Documentation](AEGIS_TECHNICAL_DOCUMENTATION.pdf), `AGENTS.md`, `ARCHITECTURE.md` and your issue.
-2. Confirm branch and `git status`, then branch from current `origin/dev/integration`. Do not work directly on the integration branch.
+2. Confirm branch and `git status`, then follow [CONTRIBUTING.md](../CONTRIBUTING.md) to check out and synchronize the existing role branch, or create a scoped task branch from current integration. Do not work directly on the integration branch.
 3. Reproduce existing tests for relevant modules. A plain root pytest run does **not** select the LLVM adapter's 94 tests. Explicitly run `core/tests platform/api/tests platform/cli/tests protectors/llvm/adapter/tests` for the Python integration suite with the required LLVM tools.
 4. Propose minimal affected files/interfaces before changing shared contracts. Keep build outputs, `.aegis/` and secrets out of commits.
 5. PR to `dev/integration` with exact commands, results and warnings, test cases not run, artifact hashes where relevant, and an explicit handoff.
