@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aegis-lab"
+version = "0.1.0"
+description = "Reproducible adversarial software-protection trial records for AEGIS."
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2.7,<3"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aegis_lab"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

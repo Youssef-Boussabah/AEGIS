@@ -2,7 +2,7 @@ name: CI
 
 # Clean-clone continuous integration for AEGIS (Role A / integration foundation).
 #
-# Two independent jobs:
+# Core and native integration jobs, plus offline Lab validation:
 #   python-suite  - the Core, API and CLI tests, installed exactly as a fresh
 #                   clone would per README.md#setup. Fast, no native toolchain.
 #   llvm-shield   - builds the LLVM Shield plugin and runs its CTest suite plus
@@ -83,3 +83,18 @@ jobs:
             --shield-plugin /tmp/aegis-shield-build/AegisShield.so \
             --shield-opt "$(command -v opt-22)" \
             --shield-clang "$(command -v clang-22)"
+
+  lab-suite:
+    name: Lab offline suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Install Lab
+        run: |
+          uv venv --python 3.12 .venv
+          uv pip install --python .venv/bin/python -c core/requirements-dev.lock -e './attack_lab[dev]'
+      - name: Run Lab offline tests
+        run: .venv/bin/python -m pytest attack_lab/tests -q
