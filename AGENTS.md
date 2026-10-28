@@ -74,7 +74,7 @@ including tests for its error paths.
 
 | Suite | Command (from repository root) | Notes |
 | --- | --- | --- |
-| default Python | `.venv/bin/pytest` | root `pyproject.toml` selects Core, API, CLI only (currently 105 tests at baseline) | 
+| default Python | `.venv/bin/pytest` | root `pyproject.toml` selects Core, API, CLI only (currently 105 tests at baseline) |
 | complete Python + real adapter suite | `.venv/bin/python -m pytest core/tests platform/api/tests platform/cli/tests protectors/llvm/adapter/tests -q` | includes LLVM adapter cases (199 total at recorded baseline); requires working LLVM 22 tools and plugin |
 | one package | `(cd core && ../.venv/bin/pytest)`, and likewise for `platform/api` and `platform/cli` | uses the package's own pytest config |
 | LLVM Shield | `cmake -S protectors/llvm -B /tmp/aegis-shield-build -G Ninja -DLLVM_DIR="$(llvm-config --cmakedir)" -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release && cmake --build /tmp/aegis-shield-build && ctest --test-dir /tmp/aegis-shield-build --output-on-failure` | needs LLVM ≥22 (verified 22.1.8) with matching `opt` and `clang`; driven by CTest, **not** pytest |
