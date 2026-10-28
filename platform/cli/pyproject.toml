@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aegis-cli"
+version = "0.1.0"
+description = "The `aegis` command-line interface."
+requires-python = ">=3.11"
+dependencies = ["aegis-core==0.1.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+aegis = "aegis_cli.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aegis_cli"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
