@@ -1,0 +1,85 @@
+name: CI
+
+# Clean-clone continuous integration for AEGIS (Role A / integration foundation).
+#
+# Two independent jobs:
+#   python-suite  - the Core, API and CLI tests, installed exactly as a fresh
+#                   clone would per README.md#setup. Fast, no native toolchain.
+#   llvm-shield   - builds the LLVM Shield plugin and runs its CTest suite plus
+#                   the real adapter integration tests against LLVM 22.
+#
+# This workflow does not fabricate results: a job that cannot install its
+# prerequisites fails rather than reporting a skipped suite as passing.
+
+on:
+  push:
+    branches: [dev/integration, "feat/**"]
+  pull_request:
+    branches: [dev/integration]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python-suite:
+    name: Python suite (core, api, cli)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install packages (clean-clone setup)
+        run: sh scripts/setup-python.sh
+
+      - name: Run default suite
+        run: .venv/bin/python -m pytest
+
+  llvm-shield:
+    name: LLVM Shield plugin + adapter suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install LLVM 22, CMake and Ninja
+        run: |
+          wget -q https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 22
+          sudo apt-get install -y cmake ninja-build llvm-22-dev clang-22
+          echo "LLVM_DIR=$(llvm-config-22 --cmakedir)" >> "$GITHUB_ENV"
+
+      - name: Install Python packages (adapter drives core)
+        run: sh scripts/setup-python.sh
+
+      - name: Build Shield plugin
+        run: |
+          cmake -S protectors/llvm -B /tmp/aegis-shield-build -G Ninja \
+            -DLLVM_DIR="$LLVM_DIR" \
+            -DCMAKE_CXX_COMPILER=clang++-22 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/aegis-shield-build -j2
+
+      - name: Shield CTest suite
+        run: ctest --test-dir /tmp/aegis-shield-build --output-on-failure
+
+      - name: Adapter integration suite
+        run: |
+          .venv/bin/python -m pytest protectors/llvm/adapter/tests -q \
+            --shield-plugin /tmp/aegis-shield-build/AegisShield.so \
+            --shield-opt "$(command -v opt-22)" \
+            --shield-clang "$(command -v clang-22)"
