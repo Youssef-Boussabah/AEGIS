@@ -1,0 +1,13 @@
+# AEGIS ImageLab protection allowlist.
+#
+# The exact set of functions annotated "aegis.protect" in src/kernels.cpp.
+# These are C-linkage (unmangled) symbols with scalar-integer-only signatures,
+# as required by the LLVM Shield in protectors/llvm.
+#
+# Contract, checked by the imagelab.annotations CTest:
+#   this list == functions selected by "aegis.protect" in the kernels IR.
+# A protector that selects by name instead of by annotation should read
+# this file. Format: one symbol per line; '#' starts a comment.
+imagelab_tone_map_pixel
+imagelab_color_adjust_pixel
+imagelab_enhance_pixel

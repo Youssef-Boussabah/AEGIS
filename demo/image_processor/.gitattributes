@@ -1,0 +1,3 @@
+# Fixtures are exact binary images; never convert line endings.
+tests/fixtures/*.pam binary
+tests/fixtures/*.ppm binary
