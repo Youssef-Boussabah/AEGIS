@@ -1,15 +1,17 @@
 # AEGIS: four-person engineering workstreams
 
-**Active plan — 28 October 2026.** This file supersedes the six-person *assignment split* in the PDFs under `docs/`. The PDFs remain the product and architecture baseline at `c995857`; they are not evidence that future work has been implemented. The current branch, source, tests and accepted ADRs determine current behavior.
+**Active plan — 28 October 2026.** Four technical workstreams, independent of who takes each role. The PDF references are being revised to carry the same four-workstream plan. The existing architectural and test baseline remains `c995857`; later repository source and tests determine current behavior.
 
 ## Four owners
 
-| Stream | Availability | Owner | GitHub issue | Owned implementation paths |
-|---|---|---|---|---|
-| A — Core Platform, Shield & Integration | High | Youssef (integration lead) | [#9](https://github.com/Youssef-Boussabah/AEGIS/issues/9) | `core/`, `platform/api/`, `platform/cli/`, `protectors/llvm/`, `demo/image_processor/`, root, `docs/`, `.github/` |
-| B — Adversarial AI Lab & Mirage | High | To assign | [#10](https://github.com/Youssef-Boussabah/AEGIS/issues/10) | `attack_lab/`, `protectors/mirage/` |
-| C — Frontend & Product Experience | High | Frontend teammate (GitHub identity pending) | [#11](https://github.com/Youssef-Boussabah/AEGIS/issues/11) | `platform/dashboard/`, frontend-owned assets/tests |
-| D — Signature, Sentinel & Verification | Limited | To assign | [#12](https://github.com/Youssef-Boussabah/AEGIS/issues/12) | `provenance/`, `sentinel/` |
+| Stream | Workstream branch | GitHub issue | Owned implementation paths |
+|---|---|---|---|
+| A — Core Platform, Shield & Integration | `feat/core-shield` | [#9](https://github.com/Youssef-Boussabah/AEGIS/issues/9) | `core/`, `platform/api/`, `platform/cli/`, `protectors/llvm/`, `demo/image_processor/`, root, `docs/`, `.github/` |
+| B — Adversarial AI Lab & Mirage | `feat/lab-mirage` | [#10](https://github.com/Youssef-Boussabah/AEGIS/issues/10) | `attack_lab/`, `protectors/mirage/` |
+| C — Frontend & Product Experience | `feat/frontend` | [#11](https://github.com/Youssef-Boussabah/AEGIS/issues/11) | `platform/dashboard/`, frontend-owned assets/tests |
+| D — Signature, Sentinel & Verification | `feat/signature-sentinel` | [#12](https://github.com/Youssef-Boussabah/AEGIS/issues/12) | `provenance/`, `sentinel/` |
+
+**Branch model:** `dev/integration` is the sole integration base. The four `feat/*` branches are dedicated workstream branches; each begins at the same accepted integration commit. Prefer short scoped commits and PRs to `dev/integration`. Sync your branch with the latest integration base before starting a new change. Never merge the four feature branches into each other; coordinate changes through reviewed integration PRs.
 
 Ownership means first reviewer and primary editor, not permission to break shared contracts. Shared model, adapter, API, security, storage or deployment changes need Stream A review. Stream B does not independently edit `protectors/llvm/`; Stream C does not independently change `platform/api/`; Stream D does not independently change Core. Engineers may use any coding agent. No agent receives push/merge authority without explicit task authorization.
 
@@ -44,4 +46,4 @@ Ownership means first reviewer and primary editor, not permission to break share
 - Previous [#5](https://github.com/Youssef-Boussabah/AEGIS/issues/5) → **D / #12**
 - [#7](https://github.com/Youssef-Boussabah/AEGIS/issues/7) stays open as the independent cross-ecosystem benchmark shared task, coordinated by A.
 
-The team and integration lead can reassign owners in issues after GitHub usernames are known; do not infer identities.
+The roles are intentionally unassigned. GitHub assignees can be set later without revising the architecture.
