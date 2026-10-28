@@ -30,16 +30,25 @@ def input_file(tmp_path: Path) -> Path:
     return path
 
 
-def policy(mode: str = "ok", **kwargs) -> ProtectionPolicy:
-    options = {"mode": mode, **kwargs.pop("options", {})}
-    return ProtectionPolicy(backend=kwargs.pop("backend", FAKE_BACKEND), options=options, **kwargs)
+@pytest.fixture
+def policy():
+    """Build policies through pytest's directory-scoped fixture lookup."""
+    def factory(mode: str = "ok", **kwargs) -> ProtectionPolicy:
+        options = {"mode": mode, **kwargs.pop("options", {})}
+        return ProtectionPolicy(backend=kwargs.pop("backend", FAKE_BACKEND), options=options, **kwargs)
+
+    return factory
 
 
-def attack_policy(mode: str = "attack", **kwargs) -> ProtectionPolicy:
-    auth = kwargs.pop(
-        "authorization",
-        AttackLabAuthorization(
-            authorized_by="security-lead", reference="ENG-42", scope="sample.bin only"
-        ),
-    )
-    return policy(mode, task=TaskKind.ATTACK_LAB, authorization=auth, **kwargs)
+@pytest.fixture
+def attack_policy(policy):
+    def factory(mode: str = "attack", **kwargs) -> ProtectionPolicy:
+        auth = kwargs.pop(
+            "authorization",
+            AttackLabAuthorization(
+                authorized_by="security-lead", reference="ENG-42", scope="sample.bin only"
+            ),
+        )
+        return policy(mode, task=TaskKind.ATTACK_LAB, authorization=auth, **kwargs)
+
+    return factory

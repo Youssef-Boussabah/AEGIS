@@ -7,7 +7,6 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from conftest import attack_policy, policy
 
 from aegis_core.config import AdapterSpec
 from aegis_core.errors import AegisError
@@ -29,7 +28,7 @@ def _run(orch: Orchestrator, pol, source: Path):
     return orch.run(job.job_id)
 
 
-def test_successful_protection_records_hashes_and_report(orchestrator, input_file):
+def test_successful_protection_records_hashes_and_report(orchestrator, input_file, policy):
     job = _run(orchestrator, policy(), input_file)
     assert job.status is JobStatus.SUCCEEDED
     assert job.error is None
@@ -49,7 +48,7 @@ def test_successful_protection_records_hashes_and_report(orchestrator, input_fil
     assert report.limitations
 
 
-def test_unsupported_backend_fails_before_creating_a_job(orchestrator, input_file):
+def test_unsupported_backend_fails_before_creating_a_job(orchestrator, input_file, policy):
     with pytest.raises(AegisError) as info:
         orchestrator.submit(policy(backend="llvm-obfuscator"), source=input_file)
     assert info.value.code is ErrorCode.UNSUPPORTED_BACKEND
@@ -57,14 +56,14 @@ def test_unsupported_backend_fails_before_creating_a_job(orchestrator, input_fil
     assert orchestrator.list_jobs() == []
 
 
-def test_unsupported_task_is_explicit(make_orchestrator, input_file):
+def test_unsupported_task_is_explicit(make_orchestrator, input_file, attack_policy):
     orch = make_orchestrator(attack_lab_enabled=True, tasks=("protect",))
     with pytest.raises(AegisError) as info:
         orch.submit(attack_policy(), source=input_file)
     assert info.value.code is ErrorCode.UNSUPPORTED_TASK
 
 
-def test_missing_input_is_explicit(orchestrator, tmp_path):
+def test_missing_input_is_explicit(orchestrator, tmp_path, policy):
     with pytest.raises(AegisError) as info:
         orchestrator.submit(policy(), source=tmp_path / "missing.bin")
     assert info.value.code is ErrorCode.INPUT_NOT_FOUND
@@ -74,20 +73,20 @@ def test_missing_input_is_explicit(orchestrator, tmp_path):
 # ------------------------------------------------------------- attack lab
 
 
-def test_attack_lab_disabled_by_config(orchestrator, input_file):
+def test_attack_lab_disabled_by_config(orchestrator, input_file, attack_policy):
     with pytest.raises(AegisError) as info:
         orchestrator.submit(attack_policy(), source=input_file)
     assert info.value.code is ErrorCode.AUTHORIZATION_REQUIRED
 
 
-def test_attack_lab_requires_authorization_record(make_orchestrator, input_file):
+def test_attack_lab_requires_authorization_record(make_orchestrator, input_file, attack_policy):
     orch = make_orchestrator(attack_lab_enabled=True)
     with pytest.raises(AegisError) as info:
         orch.submit(attack_policy(authorization=None), source=input_file)
     assert info.value.code is ErrorCode.AUTHORIZATION_REQUIRED
 
 
-def test_attack_lab_rejects_expired_authorization(make_orchestrator, input_file):
+def test_attack_lab_rejects_expired_authorization(make_orchestrator, input_file, attack_policy):
     orch = make_orchestrator(attack_lab_enabled=True)
     expired = AttackLabAuthorization(
         authorized_by="lead",
@@ -100,7 +99,7 @@ def test_attack_lab_rejects_expired_authorization(make_orchestrator, input_file)
     assert info.value.code is ErrorCode.AUTHORIZATION_REQUIRED
 
 
-def test_authorized_attack_lab_records_evaluations(make_orchestrator, input_file):
+def test_authorized_attack_lab_records_evaluations(make_orchestrator, input_file, attack_policy):
     orch = make_orchestrator(attack_lab_enabled=True)
     job = _run(orch, attack_policy(), input_file)
     assert job.status is JobStatus.SUCCEEDED
@@ -113,14 +112,14 @@ def test_authorized_attack_lab_records_evaluations(make_orchestrator, input_file
     assert request["authorization"]["reference"] == "ENG-42"
 
 
-def test_attack_lab_without_evaluations_fails(make_orchestrator, input_file):
+def test_attack_lab_without_evaluations_fails(make_orchestrator, input_file, attack_policy):
     orch = make_orchestrator(attack_lab_enabled=True)
     job = _run(orch, attack_policy(mode="ok"), input_file)
     assert job.status is JobStatus.FAILED
     assert job.error.code is ErrorCode.ADAPTER_INVALID_OUTPUT
 
 
-def test_protect_task_rejects_attack_evaluations(orchestrator, input_file):
+def test_protect_task_rejects_attack_evaluations(orchestrator, input_file, policy):
     job = _run(orchestrator, policy("attack"), input_file)
     assert job.status is JobStatus.FAILED
     assert job.error.code is ErrorCode.ADAPTER_INVALID_OUTPUT
@@ -140,7 +139,7 @@ def test_protect_task_rejects_attack_evaluations(orchestrator, input_file):
         ("mutate-input", ErrorCode.ARTIFACT_INTEGRITY_ERROR),
     ],
 )
-def test_adapter_failures_are_never_reported_as_success(orchestrator, input_file, mode, code):
+def test_adapter_failures_are_never_reported_as_success(orchestrator, input_file, mode, code, policy):
     job = _run(orchestrator, policy(mode), input_file)
     assert job.status is JobStatus.FAILED
     assert job.error.code is code
@@ -151,7 +150,7 @@ def test_adapter_failures_are_never_reported_as_success(orchestrator, input_file
     assert report.summary.startswith("Job failed")
 
 
-def test_crash_captures_stderr_as_evidence(orchestrator, input_file):
+def test_crash_captures_stderr_as_evidence(orchestrator, input_file, policy):
     job = _run(orchestrator, policy("crash"), input_file)
     assert "crashed on purpose" in job.error.details["stderr_tail"]
     report = orchestrator.get_report(job.job_id)
@@ -161,7 +160,7 @@ def test_crash_captures_stderr_as_evidence(orchestrator, input_file):
     assert hashlib.sha256(log.read_bytes()).hexdigest() == inv.data["stderr_sha256"]
 
 
-def test_timeout_kills_adapter(orchestrator, input_file):
+def test_timeout_kills_adapter(orchestrator, input_file, policy):
     started = time.monotonic()
     job = _run(orchestrator, policy("sleep", options={"seconds": 30}, timeout_seconds=1), input_file)
     assert time.monotonic() - started < 15
@@ -169,14 +168,14 @@ def test_timeout_kills_adapter(orchestrator, input_file):
     assert job.error.code is ErrorCode.ADAPTER_TIMEOUT
 
 
-def test_missing_executable_is_explicit(orchestrator, input_file):
+def test_missing_executable_is_explicit(orchestrator, input_file, policy):
     orchestrator.config.adapters["fake"] = AdapterSpec(command=["/nonexistent/adapter-bin"])
     job = _run(orchestrator, policy(), input_file)
     assert job.status is JobStatus.FAILED
     assert job.error.code is ErrorCode.ADAPTER_UNAVAILABLE
 
 
-def test_backend_removed_after_submit_fails_job(orchestrator, input_file):
+def test_backend_removed_after_submit_fails_job(orchestrator, input_file, policy):
     job = orchestrator.submit(policy(), source=input_file)
     orchestrator.config.adapters.clear()
     job = orchestrator.run(job.job_id)
@@ -184,14 +183,14 @@ def test_backend_removed_after_submit_fails_job(orchestrator, input_file):
     assert job.error.code is ErrorCode.UNSUPPORTED_BACKEND
 
 
-def test_job_cannot_run_twice(orchestrator, input_file):
+def test_job_cannot_run_twice(orchestrator, input_file, policy):
     job = _run(orchestrator, policy(), input_file)
     with pytest.raises(AegisError) as info:
         orchestrator.run(job.job_id)
     assert info.value.code is ErrorCode.JOB_CONFLICT
 
 
-def test_report_not_ready_for_pending_job(orchestrator, input_file):
+def test_report_not_ready_for_pending_job(orchestrator, input_file, policy):
     job = orchestrator.submit(policy(), source=input_file)
     with pytest.raises(AegisError) as info:
         orchestrator.get_report(job.job_id)
@@ -207,7 +206,7 @@ def test_unknown_job(orchestrator):
 # ---------------------------------------------------------------- safety
 
 
-def test_adapter_does_not_inherit_secrets(orchestrator, input_file, monkeypatch):
+def test_adapter_does_not_inherit_secrets(orchestrator, input_file, monkeypatch, policy):
     monkeypatch.setenv("AEGIS_TEST_SECRET_TOKEN", "do-not-leak")
     job = _run(orchestrator, policy("env"), input_file)
     names = orchestrator.store.artifact_path(job.output_artifacts[0]).read_text().split()
@@ -215,7 +214,7 @@ def test_adapter_does_not_inherit_secrets(orchestrator, input_file, monkeypatch)
     assert "PATH" in names
 
 
-def test_env_passthrough_is_opt_in(orchestrator, input_file, monkeypatch):
+def test_env_passthrough_is_opt_in(orchestrator, input_file, monkeypatch, policy):
     monkeypatch.setenv("AEGIS_TEST_ALLOWED", "1")
     spec = orchestrator.config.adapters["fake"]
     orchestrator.config.adapters["fake"] = spec.model_copy(
@@ -226,7 +225,7 @@ def test_env_passthrough_is_opt_in(orchestrator, input_file, monkeypatch):
     assert "AEGIS_TEST_ALLOWED" in names
 
 
-def test_untrusted_values_never_reach_a_shell(orchestrator, tmp_path):
+def test_untrusted_values_never_reach_a_shell(orchestrator, tmp_path, policy):
     hostile = tmp_path / "x; touch pwned; $(touch pwned) `touch pwned`.bin"
     hostile.write_bytes(b"data")
     job = _run(
