@@ -6,7 +6,7 @@ Role **B** · branch `feat/lab-mirage` · [issue #10](https://github.com/Youssef
 
 `aegis_lab.manifest` defines the **local, versioned experiment record** (`aegis.lab.trial.v2`) for an authorized, paired baseline/protected reconstruction trial. It records the final-artifact identity, shared build conditions, the one permitted protection step, attack tool/workflow/model identity bound by digests, attacker access, equal budgets, scorer identity and an authorization reference. It rejects incomparable declarations *before an attacker is run*. `TrialManifest.sha256()` produces a stable record fingerprint, not a signature.
 
-A manifest is a **declaration**. Its digests are the author's claims, and matching manifest fields do not prove that a comparison is scientifically fair. Three kinds of record are kept separate: declared configuration (the manifest), checked evidence (not implemented) and attack outcomes (not implemented).
+A manifest is a **declaration**. Its digests are the author's claims, and matching manifest fields do not prove that a comparison is scientifically fair. Three kinds of record are kept separate: declared configuration (the manifest), checked evidence (`aegis_lab.evidence`, below) and attack outcomes (not implemented).
 
 **The manifest does not run an attack.** It does not integrate REA, Nebius, generated-code execution, AEGIS Core, or any security scoring. Any claims of attack resistance require a later independent scoring implementation. The authorization field here is *audit metadata*, not permission: actual execution must still satisfy **both** Core gates (`[attack_lab] enabled` and `AttackLabAuthorization`). Nothing in the present Core adapter runner is a sandbox for generated programs.
 
@@ -167,8 +167,8 @@ failure exits 3, and invalid arguments exit 2 (see *Error output* below).
   **report invariants** below.
 - **Report invariants.** `aegis_lab.ghidra.analysis_violations` and
   `report_violations` are the single definition, applied by the worker before
-  publication and by every `AnalysisReport` when it is constructed or parsed.
-  A report is invalid if analysis timed out;
+  publication, by every `AnalysisReport` when it is constructed or parsed, and
+  therefore by the evidence binder. A report is invalid if analysis timed out;
   the program name or Ghidra's executable digest differs from `binary`; a
   function does not match an exact selector; there are more functions than
   `max_functions` or fewer than the exporter's own count implies; decompiled C
@@ -199,7 +199,7 @@ failure exits 3, and invalid arguments exit 2 (see *Error output* below).
   128 KiB of the log are kept (`log_bytes_total`, `log_truncated`). The
   scratch path, Ghidra installation path, home directory and account name are
   replaced with `<scratch>`, `<ghidra>`, `~` and `<user>` on a best-effort basis.
-  The report is re-parsed with the strict report parser, written to a temporary
+  The report is re-parsed with the binder's own parser, written to a temporary
   file and hard-linked into place, so it appears complete or not at all and never
   replaces an existing report. The output directory is opened once before Ghidra
   starts and all publication is relative to that descriptor; if the path was
@@ -239,8 +239,8 @@ programmatic callers, `WorkerError` carries `category`, `violations` (codes) and
   published; lower `--max-functions` or `--max-c-chars`.
 - The launcher is hashed and then executed by path; a substitution between the
   two is not detected. The launcher and installation are trusted local tools.
-- Reports are not signed. The worker cannot show which process produced a
-  report file.
+- Reports are not signed. Neither the worker nor the binder can show which
+  process produced a report file.
 - On failure the CLI no longer prints Ghidra's log tail; use `WorkerError.log_tail`
   from Python to debug a failing Ghidra run.
 
@@ -254,8 +254,9 @@ secrets. `tests/test_ghidra_real.py` runs the real exporter: it compiles fresh
 AEGIS-owned fixtures (never executed). It checks a distinctive decompiled
 function against the ELF symbol table, that ambiguous and missing selectors
 fail, that a 1 s auto-analysis timeout fails closed, and that a wall timeout
-leaves no process running in the worker's scratch directory. Those 5 tests
-are skipped (not run) unless enabled:
+leaves no process running in the worker's scratch directory. Those 5 tests,
+and 15 real-Ghidra tests in `tests/test_evidence.py`, are skipped (not run)
+unless enabled:
 
 ```sh
 AEGIS_GHIDRA_HEADLESS="$HOME/Applications/ghidra_12.1.4_PUBLIC/support/analyzeHeadless" \
@@ -264,3 +265,66 @@ AEGIS_GHIDRA_HEADLESS="$HOME/Applications/ghidra_12.1.4_PUBLIC/support/analyzeHe
 
 Future AEGIS adapter integration requires both existing authorization gates
 and a separate architecture review.
+
+## Binding Ghidra evidence to manifests
+
+`aegis_lab.evidence` connects a Phase 2 `ghidra-analysis.json` report to the
+manifest of the trial it belongs to. It does not run Ghidra or any attack.
+
+1. **Before the run**, declare the Ghidra tool in the manifest's
+   `attack.tools`. The command below hashes the launcher, the installation's
+   `application.properties` and the exporter, and prints the `ToolIdentity`.
+   Use the same selector and limits for the worker run.
+
+   ```sh
+   .venv/bin/python -m aegis_lab.evidence ghidra-tool \
+     --headless "$HOME/Applications/ghidra_12.1.4_PUBLIC/support/analyzeHeadless" --function add
+   ```
+
+   `configuration_sha256` is SHA-256 over the canonical JSON of
+   `{"schema": "aegis.lab.ghidra-configuration.v1"}` plus these report
+   `export` fields:
+   - `ghidra_application_properties_sha256`, `ghidra_revision`;
+   - `exporter_name`, `exporter_script_sha256`;
+   - `selected_function`, `max_functions`, `max_c_chars`;
+   - the three timeouts.
+
+   The version and launcher digest are bound through `version` and
+   `executable_sha256`.
+
+2. **After both runs**, check each report against its own manifest:
+
+   ```sh
+   .venv/bin/python -m aegis_lab.evidence bind-pair \
+     BASELINE.json PROTECTED.json baseline/ghidra-analysis.json protected/ghidra-analysis.json
+   ```
+
+   The command first requires a comparable manifest pair. It then requires each
+   report's `binary.sha256` to equal its *own* manifest's
+   `final_artifact_sha256`, so swapped reports fail. Each report's Ghidra
+   version, launcher digest and configuration digest must equal the declared
+   tool, and each report must satisfy the worker's report invariants (see
+   *Report invariants*; a violation prints `<role>: <field path>: <reason>`).
+   Both reports must also have observed the same Ghidra release, build date and
+   Java version. When two bindings are combined (`compare_pair_evidence`), each
+   binding's recorded `trial_id`, `manifest_sha256` and `artifact_sha256` must
+   equal the current manifest's, so evidence bound to an earlier revision of a
+   manifest (same trial id, different content) or to the other variant is
+   rejected as `stale_or_swapped`. Byte-identical baseline and protected
+   artifacts remain valid.
+
+   The output (`aegis.lab.evidence-binding.v1`) records, separately for each
+   variant: `trial_id`, `manifest_sha256`, `artifact_sha256`, and the
+   `evidence_sha256` of the exact report bytes that were parsed, plus observed
+   counts (exported, decompiled, failed, with warnings, truncated). It includes no
+   decompiled code or logs. Reports are loaded with the same bounded
+   file/JSON rules as manifests (limit 8 MiB).
+
+A binding is a **consistency check of unsigned report files**. It does not show:
+
+- that the AEGIS worker produced the report (signing is role D's planned work);
+- that the artifact presently on disk has the declared hash;
+- that protection was retained;
+- any attack outcome.
+
+It never authorizes execution.
