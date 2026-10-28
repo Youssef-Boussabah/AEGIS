@@ -14,10 +14,10 @@
 
 | Workstream | Issue | State |
 |---|---|---|
-| A Core, Shield, Integration | #9 | Ready to assign/implement; CI, governance, final-binary retention and Shield v2 remain work |
-| B Adversarial Lab and Mirage | #10 | Ready to assign; no real reconstruction backend yet |
-| C Frontend and UI | #11 | Teammate selected; implementation status not established |
-| D Signature and Sentinel | #12 | Limited-availability owner to assign; signing not established |
+| A Core, Shield, Integration | #9 | Scope defined; CI, governance, final-binary retention and Shield v2 remain work |
+| B Adversarial Lab and Mirage | #10 | Scope defined; no real reconstruction backend yet |
+| C Frontend and UI | #11 | Scope defined; implementation status not established |
+| D Signature and Sentinel | #12 | Scope defined; signing not established |
 | External benchmark profiles | #7 | PhotoCraft, reVC and Mattermost selected; integrations not demonstrated |
 
 ## Immediate integration blockers
@@ -29,4 +29,4 @@
 
 ## Keeping this record trustworthy
 
-On each accepted PR, record merge commit, owner, actual test commands/counts, new limitations, and next work. Update workstream issues and this status file together. Avoid copying transient agent claims into product capability statements. The User Guide and Technical Documentation are a frozen `c995857` reference; use repository code and tests for newer state.
+On each accepted PR, record merge commit, owner, actual test commands/counts, new limitations, and next work. Update workstream issues and this status file together. Avoid copying transient agent claims into product capability statements. The recorded technical evidence predates this reorganization; read the current four-workstream revisions alongside repository code and tests for later implementation state.
