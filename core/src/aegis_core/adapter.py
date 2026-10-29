@@ -14,6 +14,7 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -255,11 +256,25 @@ def _parse_result(stdout: bytes, limit: int) -> tuple[AdapterResult | None, Erro
 
 
 def _kill_process_group(proc: subprocess.Popen[bytes]) -> None:
-    try:
-        if hasattr(os, 'killpg'):
-            os.killpg(proc.pid, signal.SIGKILL)
-        else:
+    if sys.platform == "win32":
+        try:
+            # Terminate the full process tree on Windows (/T) forcefully (/F)
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        except OSError:
+            pass
+        try:
             proc.kill()
+        except OSError:
+            pass
+        return
+
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
     except OSError:
