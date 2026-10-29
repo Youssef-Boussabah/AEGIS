@@ -85,7 +85,7 @@ Linking the manifest's authorization reference to Core's `AttackLabAuthorization
 
 1. Add a **trial runner contract** and outcome classifier, with no false success on errors or incomplete comparisons.
 2. Integrate **Ghidra** analysis under bounded trusted subprocess execution, with pinned versions and saved structured evidence. *Standalone export implemented in Phase 2 (below); not yet connected to a trial runner or Core adapter.*
-3. Integrate a **Nebius model provider** with pinned identity, explicit token budgets and sanitized traces.
+3. Integrate a **Nebius model provider** with pinned identity, explicit token budgets and sanitized traces. *Offline reconstruction pipeline implemented in Phase 3A (below); live inference is disabled pending Core execution-authorization integration with role A. Generated-code execution and reconstruction scoring are not implemented.*
 4. Implement **isolated compilation and scoring** of agent-generated candidate implementations, with hidden tests outside the attacker environment.
 5. Implement a separate **REA workflow adapter** using the same record, scoring and budget contract, noting which internal tools REA invokes.
 6. Expose a real `aegis.adapter.v1` `attack_lab` backend only after dual authorization and isolation are tested. Coordinate any Core changes with role A.
@@ -328,3 +328,341 @@ A binding is a **consistency check of unsigned report files**. It does not show:
 - any attack outcome.
 
 It never authorizes execution.
+
+## Phase 3A: AI-assisted reconstruction pipeline (offline)
+
+Phase 3A turns **checked Ghidra evidence** about one artifact into a bounded,
+policy-checked reconstruction request, runs it against an **offline** provider,
+and publishes a strictly validated record of every attempt and the outcome.
+
+- `aegis_lab.provider`: typed provider interface, canonical endpoint identity,
+  strict response parsing and a `NebiusProvider` transport.
+- `aegis_lab.disclosure`: the model-facing field allowlist, the evidence
+  scanner and the `ExternalDisclosureApproval` record.
+- `aegis_lab.reconstruction`: preparation, configuration binding, budgets, the
+  attempt loop, the `aegis.lab.reconstruction.v2` record and the CLI.
+- `aegis_lab.fake_provider`: an offline `FakeProvider` (no network, no token).
+  Its replies go through the same strict parser as network responses.
+- `aegis_lab.safe_io.publish_new_file`: exclusive, atomic publication.
+
+**Status.** Offline reconstruction is available. **Live inference is disabled.**
+The candidate is an untrusted proposal: it is never compiled, executed or
+scored. Nothing here proves that reconstruction succeeded or that any
+protection resisted anything.
+
+### Live inference is disabled
+
+`run_reconstruction` and `run-live` refuse every provider that would disclose
+evidence externally. They first check the opt-in and the disclosure approval
+(so an approval can be validated), then always stop with
+`live_inference_disabled`, blocked by:
+
+- `core_execution_authorization_unavailable`: Core's two attack-lab gates
+  (`[attack_lab] enabled` and `AttackLabAuthorization`) are not connected to
+  this pipeline. That interface needs role A.
+- `token_bound_unverified`: no verified tokenizer bound exists for a live
+  model, so a strict token budget cannot be enforced.
+- `transport_deadline_not_enforced`: the transport has only logical deadline
+  checks and socket inactivity timeouts (below). Guaranteed wall-clock
+  interruption must be solved before live inference is enabled.
+
+`run-live` never reads `NEBIUS_API_KEY` and never opens a connection.
+
+**Disclosure approval and execution authorization are different things.** An
+`ExternalDisclosureApproval` records a review decision to send *exactly this
+material* to *exactly this endpoint*. It is an unauthenticated local file: it
+does not prove who approved it, it is not a Core authorization, and it never
+satisfies either Core gate. Execution authorization (may this attack run at
+all?) belongs to Core.
+
+### Disclosure approval (`aegis.lab.external-disclosure-approval.v1`)
+
+An approval binds all of the following, and any mismatch fails closed before
+any network activity:
+
+- the `artifact_sha256`, `evidence_sha256` (report bytes) and
+  `rendered_prompt_sha256` of the exact messages that were reviewed;
+- the `provider` name and the canonical `endpoint` (scheme, host, effective
+  port and base path);
+- an optional `model_id` pin;
+- `acknowledged_findings`, which must cover every finding category present;
+- the disclosure policy version;
+- `created_at <= valid_from < expires_at`, as timezone-aware times compared in
+  UTC, with at most a 7-day window.
+
+Endpoints are canonicalized to `https://host:port/path`. URLs with userinfo,
+a query, a fragment, a non-HTTPS scheme, an IP literal, percent escapes or
+`.`/`..` segments are rejected with a fixed code that never repeats the URL.
+Redirects are never followed.
+
+### Information isolation (`aegis.lab.disclosure-policy.v1`)
+
+The prompt is rendered from an **allowlist**, not filtered from a larger
+document. The fixed system message carries no data. The single user message
+is a JSON document holding exactly these fields:
+
+- the task: function label, expected interface, platform, artifact format,
+  language (only `c`) and whether symbol names are withheld;
+- the decompiler's output for the selected function;
+- the symbol-table signature, only when symbols are revealed.
+
+Every other manifest, report, authorization and run field is structurally
+excluded.
+
+Encoding the evidence as JSON string values keeps embedded delimiters,
+quotes and newlines inside the data. It does **not** make prompt injection
+impossible: the model still reads the text.
+
+Hard failures (fail closed in every mode):
+
+- an invalid language or task field;
+- an interface that names a withheld symbol;
+- a withheld symbol (including case variants and substrings of 6+ characters)
+  still present after blinding;
+- a pre-existing `target_function` placeholder;
+- a privileged trial value in a pipeline-supplied task field.
+
+**Findings** are category counts from a heuristic scan of the evidence:
+paths, file names, URLs, e-mail addresses, comments, string literals,
+instruction-like text, high-entropy tokens, other function names, artifact
+names, protection hints, privileged trial values and control characters. They
+are recorded in `prepare` output and in the record. Evidence is never silently
+rewritten. The only transformation is the declared, counted renaming of the
+target symbol to `target_function` when the run is blinded.
+
+**Limitations.** Arbitrary binaries can contain arbitrary strings. The
+scanner is not secret detection or semantic declassification. Absence of
+findings is not proof that nothing sensitive is present. Blinding withholds
+the target name only; other identifiers in the binary remain and are reported
+as findings. For any external disclosure, a reviewer must inspect the exact
+prompt (`prepare --show-prompt`) and approve its digest.
+
+### Configuration binding
+
+A run is refused before any call unless the effective configuration matches
+the manifest:
+
+- `attack.workflow` is `ghidra_model`;
+- `attack.prompt_sha256` equals the prompt *template* digest;
+- `attack.sampling_configuration_sha256` equals the digest of
+  `aegis.lab.sampling-configuration.v1` (max output tokens, top_p, n, stop,
+  stream);
+- `attack.workflow_configuration_sha256` equals the digest of
+  `aegis.lab.reconstruction-workflow.v1` (template, disclosure policy,
+  candidate envelope, language, effective blinding, token-bound method, retry
+  policy and hard limits);
+- CLI overrides of temperature, seed, top_p and max output tokens equal the
+  declared values;
+- the running provider's name equals `attack.provider`, and the model equals
+  `attack.model_id`.
+
+`python -m aegis_lab.reconstruction plan --max-model-tokens N [--blinded]`
+prints the three digests to declare.
+
+Known limitations:
+
+- Manifests written with Phase 1 placeholder digests cannot be verified, and
+  are rejected rather than accepted.
+- Manifest v2 cannot declare an endpoint, so the endpoint is not covered by
+  these digests. For live runs it is bound only by the disclosure approval.
+- The offline provider always identifies as `FakeOffline` at `offline:fake`.
+  It refuses any other provider name, and no network provider may use that
+  name. An offline run therefore requires a manifest declaring
+  `provider: "FakeOffline"`; a manifest that declares Nebius fails offline with
+  `provider_mismatch`.
+- A prepared request retains its manifest and the exact Ghidra report bytes.
+  Immediately before execution, `verify_prepared` re-runs the complete
+  `prepare_reconstruction` on those two inputs and requires an identical
+  result. This reapplies the unchanged Phase 2 evidence binding (artifact,
+  Ghidra tool identity and configuration digest, report invariants), function
+  selection, disclosure policy, configuration digests, prompt rendering, token
+  bound and budgets. A replaced request or field, evidence rebound to another
+  manifest (even with that manifest's correct fingerprint), or swapped evidence
+  is refused (`evidence_binding_mismatch` or `prepared_request_inconsistent`)
+  before any provider call. Stored fingerprints are never trusted as proof.
+  The record stores the manifest temperature and seed next to the executed ones.
+
+### Budgets, retries and interruption
+
+- `budget.max_model_tokens` is the **aggregate** budget for the trial. Each
+  attempt reserves `prompt_token_bound + max_output_tokens` before submission.
+  It is then charged its reported total, or its full reservation when usage is
+  unknown. A definitely unsubmitted attempt is charged zero.
+- The default `max_output_tokens` is `min(16384, max_model_tokens // 2)`. It
+  depends only on the budget, so both trials of a pair declare the same value.
+- **The prompt bound is a heuristic** (UTF-8 bytes plus a template allowance).
+  It is not a verified tokenizer bound, so budget enforcement is not strict.
+  If reported usage exceeds the reservation, the record flags it.
+- The wall budget is a monotonic **logical** deadline, not a guaranteed
+  wall-clock interruption. It is checked before each attempt and retry wait,
+  between transport operations and body chunks, and after the response. Each
+  socket timeout is at most the time left, but a socket timeout is an
+  *inactivity* timeout for one blocking operation. A server that trickles bytes,
+  the buffered reads inside `http.client`, and name resolution can all run past
+  the deadline; the call then reports `deadline_exceeded` after the fact.
+  Strict transport deadline enforcement is unresolved and blocks live inference.
+- A response over budget, over `max_output_tokens`, or after the deadline is
+  never `completed`.
+- Each attempt records its submission state: `not_submitted`, `rejected`,
+  `uncertain`, `completed` or `interrupted`.
+- **Retries:** only failures that definitely never reached the provider
+  (`not_submitted`) are retried, with a fixed backoff (1, 2, 4 … s, at most
+  30 s) that must fit the deadline. **No HTTP response is ever retried**,
+  including 429, 503 and 529: there is no established guarantee that they mean
+  the request was not processed, and no idempotency mechanism. Such attempts
+  are charged their full reservation (usage unknown, never zero). An uncertain
+  submission stops the run with `submission_uncertain`.
+- **`Retry-After`:** delta-seconds or an HTTP-date (GMT) is parsed and recorded
+  as valid or invalid. It never triggers a retry.
+- A provider that raises anything other than `ProviderError`, or returns
+  anything other than a valid `InferenceResponse` (`None`, another type, an
+  unvalidated `model_construct` object, invalid nested usage), is recorded as
+  an uncertain `provider_contract_violation` attempt charged its reservation.
+  The return value is re-validated field by field inside the protected call.
+- Responses over 8 MiB are rejected by the shared parser, before decoding, as a
+  typed `oversized_response`; the body is not retained.
+- **Interruption:** `KeyboardInterrupt` during a call or a wait raises
+  `ReconstructionInterrupted` carrying the partial record. The CLI publishes
+  it and exits 130. No other cancellation mechanism exists.
+
+### Response and candidate validation
+
+Responses are parsed strictly. Any of the following is rejected or explicitly
+classified, never coerced:
+
+- duplicate JSON keys, non-finite numbers or invalid UTF-8;
+- more than one choice, a non-assistant role, or an `error` body;
+- refusals, tool calls or unknown message fields;
+- unknown or absent finish reasons;
+- a reply containing a lone surrogate or NUL;
+- usage that is absent, non-integer, negative or does not sum (absent stays
+  absent);
+- a response body over 8 MiB.
+
+A candidate must be one `aegis.lab.candidate.v1` JSON object with exactly the
+keys `schema`, `language`, `interface` (equal to the task interface) and
+`source`. Markdown fences, prose and malformed envelopes are
+`invalid_candidate`; nothing is "extracted" from them.
+
+### Record (`aegis.lab.reconstruction.v2`)
+
+The record holds these sections:
+
+- task, inputs, provider (canonical endpoint), disclosure (policy, findings,
+  approval reference and digest);
+- configuration (verified digests), declared request and budget;
+- the bounded attempt history;
+- the outcome and candidate, or the rejected output.
+
+`completed` means only that an acceptable candidate envelope arrived on time,
+within budget, with `finish_reason` `stop`, from the requested model identity
+with reported usage. It does **not** mean the candidate works. The other
+statuses are:
+
+`truncated`, `content_filtered`, `refused`, `unsupported_response`,
+`unknown_finish_reason`, `empty_candidate`, `invalid_candidate`,
+`model_identity_unverified`, `model_identity_mismatch`, `usage_unreported`,
+`usage_invalid`, `budget_exceeded`, `deadline_exceeded`,
+`submission_uncertain`, `provider_error`, `interrupted`.
+
+A candidate is present exactly when the status is `completed`. Every classified
+response that is not `completed` keeps a `rejected_output` (reason, digest,
+size, and text up to 1 MiB; or why the text is withheld) and is never
+promoted. For an HTTP error body, only its digest and size are kept; an
+oversized body is not kept at all.
+
+`parse_reconstruction_record` enforces the same invariants as creation:
+
+- candidate digest and sizes (the unverifiable reply digest was removed);
+- the status, **replayed** from the recorded observations: lateness, budget
+  overrun, usage status, reported model, refusal, tool calls, unsupported
+  fields, finish reason and content status. A retained invalid reply is
+  re-parsed and must yield the recorded `candidate_error`;
+- each attempt's HTTP status against its submission state and error category,
+  using the transport's own status mapping (a completed response is HTTP 200;
+  a 503 is a rejection and is never retryable);
+- `retryable` exactly for definitely unsubmitted transport failures;
+- retry waits that follow the backoff schedule, and attempts that start only
+  after the previous attempt and its wait ended;
+- strict, non-negative, summing usage and the charging rules;
+- `prompt_token_bound` recomputed from `prompt_bytes` and the token-bound method;
+- the executed temperature and seed against the manifest's;
+- each stop reason against its preconditions, in the run loop's order: budget
+  and deadline stops only after a retryable failure and below the attempt
+  limit; `token_budget_exhausted` only when the next reservation does not fit;
+  `deadline_reached` only after a wait and once the wall budget has elapsed;
+  `retry_wait_exceeds_deadline` only when the backoff does not fit; an
+  interruption only during a call or a wait;
+- the attempt count against the budget, disclosure fields, and recomputed
+  configuration digests.
+
+**Records are unsigned.** These checks establish internal consistency, not
+provenance: anyone who can write a record can change identity fields that no
+other field depends on (`trial_id`, `pair_id`, `variant`,
+`inputs.manifest_sha256`), or change two dependent fields together (for
+example, both the executed and the manifest temperature). Detecting that
+needs the original manifest or a signature (role D).
+
+Records produced by earlier uncommitted drafts of v2 (with `reply_sha256` or
+without the new outcome fields) do not parse and must be regenerated.
+
+`aegis.lab.reconstruction.v1` records are rejected as `retired_schema_version`.
+
+### Commands and exit codes
+
+```sh
+.venv/bin/python -m aegis_lab.reconstruction plan --max-model-tokens 4000
+.venv/bin/python -m aegis_lab.reconstruction prepare MANIFEST.json REPORT.json [--show-prompt]
+.venv/bin/python -m aegis_lab.reconstruction run-offline MANIFEST.json REPORT.json \
+  [--candidate SOURCE.c | --reply REPLY.txt] [--output RECORD.json]
+.venv/bin/python -m aegis_lab.reconstruction run-live MANIFEST.json REPORT.json \
+  --approval APPROVAL.json [--i-accept-external-disclosure] [--endpoint URL]   # always refused
+```
+
+`--output` publishes with `publish_new_file`:
+
+- the parent directory is opened once without following a final symlink;
+- the record is written to a private (0600) temporary file, fsynced and
+  hard-linked to the final name;
+- the directory is fsynced.
+
+An existing file, symlink, FIFO or directory at the destination is never
+followed or replaced; this includes the manifest and report. A replaced
+output directory, a write failure, or a filesystem without hard links is
+reported and fails closed. Output is ASCII-escaped JSON.
+
+Exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | completed |
+| 1 | record produced, but the run did not complete |
+| 2 | invalid input, configuration, policy or budget (no record) |
+| 3 | internal error |
+| 4 | live inference refused |
+| 5 | publication failed |
+| 130 | interrupted (partial record published if possible) |
+
+### Reproducibility limits
+
+The record stores the template version and digest, the rendered-prompt digest,
+the settings digests and the provider-reported identity. Provider generation
+is nondeterministic. A forwarded seed does not guarantee reproducible
+sampling. Uncertain submissions and unknown usage limit cost accounting. Ghidra
+evidence is an unsigned report and is not proof of origin.
+
+### Tests
+
+These test files cover Phase 3A:
+
+- `tests/test_provider.py`;
+- `tests/test_reconstruction.py`;
+- `tests/test_reconstruction_cli.py`.
+
+They are offline only. No network call, real model or real token is used, and
+candidates are never compiled or executed.
+
+**Not yet written:** dedicated unit tests for the disclosure module
+(`test_disclosure.py`) and for `publish_new_file` (`test_publication.py`). Those
+behaviours are currently exercised only through the reconstruction and CLI
+tests.
