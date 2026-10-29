@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aegis-mirage"
+version = "0.1.0"
+description = "Deterministic retained arithmetic decoys for LLVM 22 ELF artifacts"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aegis_mirage"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

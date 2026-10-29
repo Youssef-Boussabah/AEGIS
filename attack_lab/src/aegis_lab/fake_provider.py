@@ -79,6 +79,7 @@ class FakeProvider:
         external_disclosure: bool = False,
         errors: list[ProviderError] | None = None,
         on_call: Callable[[InferenceRequest, float], None] | None = None,
+        evidence_sink: Callable[[str, bytes], None] | None = None,
     ) -> None:
         self._source = source
         self._content = content
@@ -104,6 +105,7 @@ class FakeProvider:
         self.external_disclosure = external_disclosure
         self._pending_errors = list(errors or [])
         self._on_call = on_call
+        self._evidence_sink = evidence_sink
         self.requests: list[InferenceRequest] = []
         self.timeouts: list[float] = []
 
@@ -137,10 +139,16 @@ class FakeProvider:
         return json.dumps(document, ensure_ascii=True).encode("ascii")
 
     def complete(self, request: InferenceRequest, *, timeout: float) -> InferenceResponse:
+        if self._evidence_sink:
+            self._evidence_sink("request", json.dumps(request.to_body(), ensure_ascii=False,
+                                                     allow_nan=False).encode("utf-8"))
         self.requests.append(request)
         self.timeouts.append(timeout)
         if self._on_call is not None:
             self._on_call(request, timeout)
         if self._pending_errors:
             raise self._pending_errors.pop(0)
-        return parse_completion(self._raw_body if self._raw_body is not None else self._body(request))
+        payload = self._raw_body if self._raw_body is not None else self._body(request)
+        if self._evidence_sink:
+            self._evidence_sink("response", payload)
+        return parse_completion(payload)

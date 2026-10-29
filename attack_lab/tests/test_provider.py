@@ -348,7 +348,7 @@ class FakeConnection:
 def make_provider(monkeypatch, *, clock=None, **conn_kwargs) -> NebiusProvider:
     FakeConnection.instances = []
     kwargs = {} if clock is None else {"monotonic": clock}
-    nebius = NebiusProvider("secret-key-123", wall_clock=lambda: NOW, **kwargs)
+    nebius = NebiusProvider("secret-key-123", wall_clock=lambda: NOW, allow_live=True, **kwargs)
     monkeypatch.setattr(NebiusProvider, "_connect", lambda self: FakeConnection(**conn_kwargs))
     return nebius
 
@@ -361,6 +361,23 @@ def test_complete_success(monkeypatch):
     nebius = make_provider(monkeypatch, status=200, body=completion_bytes())
     response = nebius.complete(req(), timeout=30)
     assert response.content == "code"
+
+
+def test_transport_requires_explicit_opt_in(monkeypatch):
+    nebius = NebiusProvider("synthetic-key")
+    monkeypatch.setattr(NebiusProvider, "_connect", lambda _: pytest.fail("network attempted"))
+    with pytest.raises(PermissionError, match="live_opt_in_required"):
+        nebius.complete(req(), timeout=30)
+
+
+def test_exact_private_transport_provenance(monkeypatch):
+    captured = []
+    payload = completion_bytes()
+    nebius = NebiusProvider("synthetic-key", allow_live=True, evidence_sink=lambda kind, data: captured.append((kind, data)))
+    monkeypatch.setattr(NebiusProvider, "_connect", lambda _: FakeConnection(status=200, body=payload))
+    nebius.complete(req(), timeout=30)
+    assert captured == [("request", FakeConnection.instances[-1].requests[0]["body"]), ("response", payload)]
+    assert all(b"synthetic-key" not in data for _, data in captured)
     request = sent()[0]
     assert json.loads(request["body"])["model"] == "vendor/model-1"
     assert request["headers"]["Authorization"] == "Bearer secret-key-123"

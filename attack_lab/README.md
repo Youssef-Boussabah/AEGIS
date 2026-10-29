@@ -1,6 +1,28 @@
 # AEGIS Adversarial Lab
 
-Role **B** · branch `feat/lab-mirage` · [issue #10](https://github.com/Youssef-Boussabah/AEGIS/issues/10)
+Role **B** · working branch `feat/lab-behavior-scoring` · [issue #10](https://github.com/Youssef-Boussabah/AEGIS/issues/10)
+
+## Current delivery (29 October 2026)
+
+The existing manifest, Ghidra, one-shot reconstruction, paired trials and Phase 4
+scoring paths are preserved. New `aegis_lab.experiment` adds an explicitly labeled
+**REA-style controlled iterative reconstruction workflow**: bounded target-evidence
+inspection, private candidate revisions, exact provider-body provenance, per-step
+budgets, and paired orchestration through existing pair validation. This is not a
+direct REA integration. Generated candidates are **behaviorally unscored** while
+Core execution remains unavailable; no candidate executes in the demonstration.
+
+The real Nebius transport uses the documented Token Factory API and now also
+requires explicit transport opt-in. Live inference is still refused by the public
+Lab reconstruction/workflow entry points. No credits were spent. FakeOffline always
+identifies itself as scripted offline inference. Missing usage is unknown and
+conservatively reserved, never represented as zero model use. Offline cost is zero.
+
+[Reproduction commands and integration handoff](docs/role-b-delivery.md) cover
+strict/offline test profiles, the actual baseline/Shield/Mirage demonstration,
+private evidence, source isolation, remaining approval gates and all changed files.
+Mirage is implemented in [its owned module](../protectors/mirage/README.md).
+The older sections below describe each established phase separately.
 
 ## What this first increment does
 
@@ -86,7 +108,7 @@ Linking the manifest's authorization reference to Core's `AttackLabAuthorization
 1. Add a **trial runner contract** and outcome classifier, with no false success on errors or incomplete comparisons. *Offline paired-trial runner implemented in Phase 3B (below); outcome classification beyond workflow completion needs Phase 4 scoring.*
 2. Integrate **Ghidra** analysis under bounded trusted subprocess execution, with pinned versions and saved structured evidence. *Standalone export implemented in Phase 2 (below); not yet connected to a trial runner or Core adapter.*
 3. Integrate a **Nebius model provider** with pinned identity, explicit token budgets and sanitized traces. *Offline reconstruction pipeline implemented in Phase 3A (below); live inference is disabled pending Core execution-authorization integration with role A. Generated-code execution and reconstruction scoring are not implemented.*
-4. Implement **isolated compilation and scoring** of agent-generated candidate implementations, with hidden tests outside the attacker environment.
+4. Implement **isolated compilation and scoring** of agent-generated candidate implementations, with hidden tests outside the attacker environment. *Phase 4 scoring contracts, coordinator, Core-grant integration and paired comparison implemented (below), tested only with Core's non-executing scripted runtime; Core refuses real execution until ADR 0004 is accepted and its isolation runtime exists.*
 5. Implement a separate **REA workflow adapter** using the same record, scoring and budget contract, noting which internal tools REA invokes.
 6. Expose a real `aegis.adapter.v1` `attack_lab` backend only after dual authorization and isolation are tested. Coordinate any Core changes with role A.
 7. Build **Mirage** decoys with no-decoy controls and measure functional equivalence, retention, overhead and reconstruction outcomes.
@@ -1072,4 +1094,269 @@ executed:
 ```sh
 AEGIS_GHIDRA_HEADLESS="$HOME/Applications/ghidra_12.1.4_PUBLIC/support/analyzeHeadless" \
   .venv/bin/python -m pytest attack_lab/tests/test_paired_trial.py attack_lab/tests/test_paired_trial_analysis.py -q
+```
+
+## Phase 4: independent behavioral scoring (execution disabled)
+
+**Status.** The scoring contracts, the trusted coordinator, the Core
+integration, the paired comparison, reload verification and the CLI are all
+implemented. **No candidate is compiled or executed.**
+
+- **Authorization belongs to Core.** Core's `CandidateExecutionGrant` and its
+  three gates are checked when a session opens and again before every stage.
+  The Lab keeps no execution permission of its own.
+- **Core refuses real execution in the tested configuration.** Its Firecracker
+  runtime answers `SANDBOX_UNAVAILABLE` (`isolation_adr_not_accepted`,
+  `containment_unverified`). gVisor has separate missing-runtime prerequisites.
+- **Tests inject Core's `ScriptedIsolationRuntime`.** It never runs anything,
+  and every record it produces is labeled `test_double`.
+
+Integration details and the open interface question for Role A are in
+[docs/phase4-isolation-proposal.md](docs/phase4-isolation-proposal.md). Core's
+contract is `core/docs/lab-execution-contract.md`, and the design is ADR 0004
+(proposed). Both are owned by Role A.
+
+**Dependency.** `aegis_lab.core_execution`, `behavior_score` and `scoring`
+import `aegis_core.lab_authorization` and `aegis_core.lab_execution`. Those
+modules come from Role A's `feat/core-lab-execution` branch, which is not yet
+merged. Until it is, run the Phase 4 Core tests with that Core on `PYTHONPATH`.
+Without it, they are **skipped**, which means not run.
+
+Modules:
+
+- `aegis_lab.c_abi`: the C ABI `aegis.lab.c-abi.scalar-u32.v1` and the generated
+  harness.
+- `aegis_lab.hidden_suite`: the hidden suite, `aegis.lab.hidden-suite.v1`.
+- `aegis_lab.scoring_policy`: the sandbox policy (`aegis.lab.sandbox-policy.v1`)
+  and the scorer identity.
+- `aegis_lab.core_execution`: the grant-binding checks, Core's decision and
+  session, and `CoreSessionWorker`.
+- `aegis_lab.scoring_worker`: the Lab-side worker protocol models.
+- `aegis_lab.behavior_score`: the per-trial record, `aegis.lab.behavior-score.v1`.
+- `aegis_lab.scoring`: the paired comparison (`aegis.lab.behavior-comparison.v1`),
+  verification and the CLI.
+
+### Interface (`aegis.lab.c-abi.scalar-u32.v1`)
+
+- `label(uint32_t, ...)->uint32_t` in the existing interface notation, with 0 to
+  16 parameters, ASCII only and matched exactly. Other types, pointers, `void`,
+  variadics and more than 16 parameters are `unsupported_*`. Anything else is
+  `interface_invalid`.
+- The C function called is the reconstruction task's `function_label`
+  (`target_function` when blinded). No target name is special-cased. ImageLab's
+  three-, four- and seven-argument kernels fit, and so does any other function of
+  this shape.
+- Core receives three files:
+  - the candidate as `candidate.c`;
+  - `aegis_harness.c`;
+  - `aegis_candidate_unit.c`, which declares the prototype and includes the
+    candidate, so a definition with the wrong types fails to compile.
+
+  The harness depends only on the arity and the symbol, so it contains no test
+  data. Only `aegis_harness.c` and `aegis_candidate_unit.c` are passed as
+  `translation_units`; `candidate.c` is staged and included, never compiled on its
+  own.
+- The observed result is exactly one `AEGIS-RESULT <decimal>\n` line.
+
+### Hidden suite (`aegis.lab.hidden-suite.v1`)
+
+A suite is a scorer-side file that must never enter an attacker workspace,
+prompt, runtime or retry.
+
+- `scoring.hidden_test_suite_sha256` is SHA-256 over the **exact file bytes**.
+- Cases are `c0001`, `c0002`, ... in order (opaque), each with frozen reference
+  expectations.
+- Strict types.
+- Equal arguments with different expectations are rejected as
+  `contradictory_expectations`.
+- `audit_suite` re-checks expectations against a trusted reference callable.
+
+### Policy, scorer identity and the Core grant
+
+- `aegis.lab.sandbox-policy.v1` pins what the Lab expects Core to attest:
+  - the runtime name (`firecracker`, `gvisor-runsc` or `aegis-test-double`) and
+    version;
+  - the runtime and **rootfs** digests, plus the **guest kernel**, **guest
+    agent** and **containment-verification** digests for Firecracker;
+  - the compiler identity;
+  - the allowlisted compiler flags;
+  - the compile and execution limits, with the same fields and ranges as Core's
+    `CompileLimits` and `SandboxLimits`.
+- `python -m aegis_lab.scoring plan --policy P` prints the `scoring.scorer`
+  identity to declare in the manifests.
+- **Core's grant** must describe the Lab's inputs exactly. The Lab checks this
+  before contacting Core (`ExecutionRefused` with a `grant_*` code):
+  - the authorization reference is the manifest's;
+  - `lab_bindings` equal the pair id, the suite digest, `policy.sha256()` and
+    the scorer-configuration digest;
+  - each trial is listed as `candidate_id = trial_id`, with the exact candidate
+    SHA-256 and its own manifest target;
+  - the stages include compile and execute, and the flags and limits equal the
+    policy;
+  - the budgets cover the whole suite.
+
+  Core then applies its gates, window and ceilings (`core_refused`) and its
+  runtime preflight (`sandbox_unavailable`).
+- **Budgets are grant-wide.** Core keeps a persistent ledger, and the Lab reads it
+  before opening any session:
+  - a grant whose remaining budget cannot cover the trials is refused upfront
+    (`grant_budget_insufficient`);
+  - a reused grant id with other contents is refused
+    (`core_refused (grant_ledger_conflict)`);
+  - budget consumed elsewhere mid-run stops as `incomplete` / `core_refused`.
+
+  Interrupted runs keep their reservations.
+
+### What the coordinator checks, in order
+
+1. **Inputs** (`prepare_scoring`; nothing runs):
+   - Ghidra evidence bound to the manifest;
+   - the strict reconstruction record, with the candidate digest recomputed;
+   - every identity: trial, pair, variant, manifest, artifact, evidence, target
+     and interface;
+   - the suite digest and interface;
+   - the scorer identity;
+   - `max_cases`.
+2. **Interface and candidate:** an unsupported interface (`unsupported_interface`)
+   or a missing candidate (`not_evaluated`) never contacts Core.
+3. **Permission:** the grant binding, then Core's decision, then Core's session.
+   A caller-injected runtime must attest `test_double`.
+4. **Stages through Core:**
+   - preflight: the attestation must match the policy's runtime, rootfs and
+     compiler;
+   - one compilation;
+   - one execution per case, carrying only that case's decimal arguments;
+   - session close.
+
+   Each Core record is cross-checked against the request.
+
+### Classifications
+
+- **Per case:**
+  - `match` and `mismatch`;
+  - `runtime_crash`, `timeout`, `resource_limit_exceeded` and
+    `malformed_output`;
+  - `infrastructure_failure`, which stops the run;
+  - `not_evaluated`.
+- **Per trial:**
+  - `behavioral_match`, `behavioral_mismatch`, `compilation_failed`;
+  - `unsupported_interface`, `infrastructure_failure`;
+  - `incomplete`: deadline, Core refusal in mid-run (`core_refused` with
+    `refusal_reason`), interruption, not started;
+  - `not_evaluated`.
+- `all_hidden_tests_pass` holds **only** for `behavioral_match`.
+- Infrastructure is never a candidate result. These are all
+  `infrastructure_failure`:
+  - Core `SANDBOX_FAILED`;
+  - a contract violation;
+  - a Core record that does not match its request (`core_record_mismatch`);
+  - a failed close.
+
+### Records
+
+- **`aegis.lab.behavior-score.v1`** has a deterministic `result` section
+  (`result_sha256`):
+  - it records the grant id, digest and reference
+    (`core_gates: checked_by_core_before_every_stage`, `grant_signed: false`);
+  - it marks the worker as a Core session (`core_contract`);
+  - it holds no case arguments, expected values or observed return values.
+
+  The `run` section holds the coordinator's timings, the Core session id, and
+  each Core record's id and canonical digest.
+- **Requested, enforced and measured limits are recorded separately and never
+  equated:**
+  - `worker.granted_*_limits` are the requested limits from the grant;
+  - `worker.enforced_*_limits` are the isolating runtime's `host_enforcement`
+    values (cgroup read-back and microVM configuration), validated per stage and
+    required to be identical across a stage;
+  - `run.host_accounting` holds the host measurements: CPU, memory peak and OOM
+    kills.
+
+  A test double has neither enforced values nor accounting. Full canonical Core
+  records are retained separately in private archives, including case arguments
+  and observed bytes. Expected answers and evaluator state are never copied there.
+  Linux cgroup `memory.peak` may exceed `memory.max`; this is valid accounting,
+  including during OOM, and does not invalidate the enforced limit record.
+- **`counts_as_behavioral_evidence`** is false for a test-double runtime, a
+  FakeOffline candidate, no candidate, an outcome that cannot be attributed to
+  the candidate, or guest results without independently verified guest integrity.
+  A guest-held HMAC key does not establish guest integrity.
+  `behaviorally_successful_reconstruction` is never established in this revision.
+- **`aegis.lab.behavior-comparison.v1`** references the paired experiment and
+  both scores, and requires identical controls. It keeps four things apart: a
+  valid candidate, a suite pass or behavioral success, a completed comparison,
+  and a protection effect. The protection effect is fixed to `false` in v1.
+
+### Paired scoring
+
+`score_paired_experiment` works in this order:
+
+1. It re-verifies the experiment (`verify_experiment`) and prepares both trials.
+2. It checks the grant binding, Core's decision, and opens one Core session per
+   scored trial. Each session gets its own runtime: `runtime_factory()` in
+   tests, Core's configured runtime otherwise.
+3. Only after that does it create the new output directory (0700). A refusal
+   leaves nothing behind.
+4. It scores baseline, then protected, and publishes
+   `baseline-behavior-score.json` and `protected-behavior-score.json` as each
+   completes, then `behavior-comparison.json`.
+
+The experiment directory is never modified; its paired record keeps
+`scoring: "not_performed"`. `verify_behavior_scores` reloads and cross-checks
+all three records.
+
+```sh
+.venv/bin/python -m aegis_lab.scoring plan --policy POLICY.json
+.venv/bin/python -m aegis_lab.scoring suite-digest SUITE.json     # digest and count only
+.venv/bin/python -m aegis_lab.scoring score-pair EXPERIMENT_DIR \
+  --baseline-manifest B.json --protected-manifest P.json \
+  --baseline-evidence B-ghidra.json --protected-evidence P-ghidra.json \
+  --suite SUITE.json --policy POLICY.json --config aegis.toml --grant GRANT.json --output-dir DIR
+.venv/bin/python -m aegis_lab.scoring verify SCORE_DIR EXPERIMENT_DIR [inputs] [--suite S] [--policy P]
+```
+
+`score-pair` uses Core's configured runtime only, and in this revision Core
+refuses (exit 4) before anything is created.
+
+Exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | records published |
+| 2 | invalid input or inconsistency (paths and rejected values are never printed) |
+| 3 | internal error |
+| 4 | execution refused by the grant binding or by Core |
+| 5 | publication failed |
+| 130 | interrupted |
+
+### Limitations
+
+- Nothing is compiled or executed. Every score produced today uses Core's
+  scripted runtime and FakeOffline candidates, and is labeled as such. It is not
+  evidence.
+- Core's Firecracker implementation remains owner-controlled and unavailable for
+  candidate execution pending containment verification and ADR/operator approvals.
+  This delivery neither boots a VM nor approves ADR 0004.
+- Grants and Lab records are unsigned.
+
+### Tests
+
+These test files need Role A's Core and are skipped without it in the **offline**
+profile. `--lab-profile integration` fails on missing Core/Ghidra prerequisites
+or any skipped test:
+
+- `tests/test_behavior_score.py`;
+- `tests/test_scoring.py`.
+
+These test files have no Core dependency:
+
+- `tests/test_c_abi.py`;
+- `tests/test_hidden_suite.py`;
+- `tests/test_scoring_policy.py`.
+
+Shared fixtures are in `tests/scoring_fixtures.py`.
+
+```sh
+PYTHONPATH=/path/to/feat-core-lab-execution/core/src \
+  .venv/bin/python -m pytest attack_lab/tests -q
 ```
