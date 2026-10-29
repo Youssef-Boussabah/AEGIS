@@ -31,12 +31,14 @@ fi
 echo "Creating virtual environment at $VENV"
 uv venv "$VENV"
 
-echo "Installing aegis-core, aegis-api and aegis-cli (editable, lock-constrained)"
+echo "Installing aegis-core, aegis-api, aegis-cli, aegis-provenance and aegis-sentinel (editable, lock-constrained)"
 uv pip install --python "$VENV/bin/python" \
   -c "$ROOT/core/requirements-dev.lock" \
   -e "$ROOT/core[dev]" \
   -e "$ROOT/platform/api[dev]" \
-  -e "$ROOT/platform/cli[dev]"
+  -e "$ROOT/platform/cli[dev]" \
+  -e "$ROOT/provenance[dev]" \
+  -e "$ROOT/sentinel[dev]"
 
 echo "Done. Activate with: . $VENV/bin/activate"
 echo "Run the default suite with: $VENV/bin/python -m pytest"

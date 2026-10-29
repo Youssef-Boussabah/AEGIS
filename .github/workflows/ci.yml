@@ -26,7 +26,7 @@ permissions:
 
 jobs:
   python-suite:
-    name: Python suite (core, api, cli)
+    name: Python suite (core, api, cli, provenance, sentinel)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
