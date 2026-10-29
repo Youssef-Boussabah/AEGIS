@@ -83,7 +83,7 @@ Linking the manifest's authorization reference to Core's `AttackLabAuthorization
 
 ## Subsequent increments
 
-1. Add a **trial runner contract** and outcome classifier, with no false success on errors or incomplete comparisons.
+1. Add a **trial runner contract** and outcome classifier, with no false success on errors or incomplete comparisons. *Offline paired-trial runner implemented in Phase 3B (below); outcome classification beyond workflow completion needs Phase 4 scoring.*
 2. Integrate **Ghidra** analysis under bounded trusted subprocess execution, with pinned versions and saved structured evidence. *Standalone export implemented in Phase 2 (below); not yet connected to a trial runner or Core adapter.*
 3. Integrate a **Nebius model provider** with pinned identity, explicit token budgets and sanitized traces. *Offline reconstruction pipeline implemented in Phase 3A (below); live inference is disabled pending Core execution-authorization integration with role A. Generated-code execution and reconstruction scoring are not implemented.*
 4. Implement **isolated compilation and scoring** of agent-generated candidate implementations, with hidden tests outside the attacker environment.
@@ -666,3 +666,410 @@ candidates are never compiled or executed.
 (`test_disclosure.py`) and for `publish_new_file` (`test_publication.py`). Those
 behaviours are currently exercised only through the reconstruction and CLI
 tests.
+
+## Phase 3B: controlled paired trial runner (offline)
+
+`aegis_lab.paired_trial` runs one **baseline/protected pair** through the
+existing stages and publishes a versioned paired record,
+`aegis.lab.paired-trial.v2`. It composes Phase 1, 2 and 3A; it does not
+reimplement them, and it does not run Ghidra (it consumes existing
+`ghidra-analysis.json` reports).
+
+**Status.** Only the local offline `FakeOffline` workflow is available.
+Its replies and token usage are **scripted by the fake provider**: they
+are not model output. Live inference stays disabled, and Core's two
+attack-lab gates are not connected. The manifests' authorization reference
+is recorded as audit metadata with `is_execution_permission: false`.
+Candidates are never compiled, executed or scored.
+
+### What the runner does, in order
+
+1. **Roles.** Manifests and reports are taken by role (`--baseline-*`,
+   `--protected-*`). A protected manifest given as the baseline is rejected
+   (`baseline-manifest: variant: not_baseline`), never silently re-ordered.
+2. **Phase 1.** `validate_pair` must accept the two manifests.
+3. **Phase 2.** Each report is bound to its own manifest
+   (`bind_ghidra_evidence`). Swapped, stale or wrong-artifact evidence fails
+   with `binding: binary.sha256: mismatch`. `compare_pair_evidence` must
+   accept the pair (same Ghidra release, build date and Java version).
+4. **Phase 3A preparation, for both trials, before either runs.** Both use
+   `prepare_reconstruction` with the same options. Each trial also gets a
+   target-analysis observation from its bound report (see *Target-analysis
+   failures* below). A target that failed to decompile in a valid wildcard
+   report yields no request, and its declared settings are verified
+   separately. When both requests exist, the runner requires identical
+   prepared settings: task, blinding, declared provider/model,
+   configuration digests and budgets. It also requires identical request
+   parameters (model, temperature, top_p, seed, max output tokens, stop, n),
+   the same fixed system message and the same model-facing `task` object.
+   Only the artifact-derived evidence may differ.
+5. **Run preconditions.** It checks the execution mode (only `offline`) and
+   the order seed. It re-prepares the pair from the retained manifests and exact
+   report bytes, rejecting changed observations, bindings or request membership
+   before creating any provider. It creates one provider instance per trial *that has a
+   request* (none for an analysis-failure trial). Two instances must be distinct
+   objects of the exact built-in `FakeProvider` type, `FakeOffline` at
+   `offline:fake`, and each must pass
+   `verify_prepared` and `verify_effective_configuration`. It then creates
+   the output directory, which must not exist (mode 0700; an existing entry,
+   including a symlink, is refused). Every failure up to this point happens
+   **before any inference**, and no output is left behind.
+   A factory cannot substitute a transport by claiming the offline identity:
+   duck-typed providers, subclasses and instance overrides of inference methods
+   are refused. Python factories and fake-provider callbacks are trusted local
+   test code, not a sandbox for arbitrary Python.
+6. **Seeded order.** `execution_order(seed, ...)` takes the low bit of the
+   first byte of SHA-256 over canonical JSON of
+   `{schema: "aegis.lab.trial-order.v1", seed, pair_id, baseline_trial_id,
+   protected_trial_id}`. The seed is the operator's `--order-seed` or, if
+   omitted, comes from `secrets`. The seed, its source and the sequence are
+   recorded. The order does not depend on Python's `random` module, and
+   parsing re-derives it.
+7. **Trials.** Each trial with a prepared request calls `run_reconstruction` with its own provider
+   instance and fresh attempt state. Each trial's record is published as
+   `<variant>-reconstruction.json` (via `publish_new_file`) as soon as that
+   trial ends.
+8. **Paired record.** `paired-trial.json` is published last. It references
+   every produced reconstruction record by file digest and canonical digest.
+
+### Information isolation between trials
+
+- Available prompts are rendered before either trial runs, and each is
+  re-verified (`verify_prepared`) immediately before it runs. No candidate,
+  record or outcome of one trial can reach the other trial's request.
+- Each provider instance receives exactly one trial's requests.
+- When both prompts exist, their model-facing tasks are identical. A task never contains
+  the variant, trial or pair ids, protection details, hidden-test or scorer
+  identity, or authorization data (the Phase 3A allowlist). For each trial,
+  the runner also counts the *other* trial's privileged values that appear
+  in this trial's prompt (`cross_trial_value_findings`). Such a value can
+  only come from artifact-derived evidence. Like Phase 3A's own findings,
+  it is recorded and noted in `limitations`, not rejected.
+
+### Failure handling
+
+| Situation | Behaviour |
+| --- | --- |
+| A trial's reconstruction does not complete (invalid candidate, provider error, uncertain submission, deadline, budget) | Its record and status are kept. The other trial still runs. `pair_status: trial_failures`. Exit 1. |
+| Both trials fail | Both records kept. `pair_status: trial_failures`. Exit 1. |
+| Interrupted (Ctrl-C) during a call, a wait, a publication or between trials | The partial record is published if one exists. The remaining trial is `not_started`. `run_status: interrupted`. Exit 130. |
+| Execution refused after preparation (`ConfigurationError`, `BudgetError`, `AuthorizationError`) | `state: execution_refused` with codes. The run stops. Exit 1. |
+| Unexpected exception inside a trial | `state: internal_error` (exception type only). The other trial's record is preserved. Exit 3. |
+| A trial record cannot be published | `publication: failed` with its category. The run stops. Exit 5. |
+| The output directory is replaced during the run | `directory_replaced`. Nothing is written into the substituted directory. Exit 5. |
+| The paired record cannot be published | The trial records remain. The CLI prints only the terminal-safe summary; the full record remains available to Python callers in `PairedTrialResult.record`. Exit 5. |
+| Existing output directory | Refused before inference. Exit 5. |
+| A target did not decompile in a valid wildcard report (one or both trials) | `state: analysis_failure_recorded`: no request, no provider, zero attempts and tokens. The other trial runs normally. `pair_status: target_analysis_failure_observed`, `interpretation: not_evaluated`. Exit 1. |
+| A target failure under an exact selector, an auto-analysis timeout, or no function decompiled | Invalid input: Phase 2 refuses to publish or bind such a report. Exit 2. |
+| The target is missing from, or ambiguous in, a wildcard report | Invalid input (`function_not_found`, `ambiguous_function`). Exit 2. |
+
+No trial or inference request is retried by the runner. Phase 3A retries
+only failures that are definitely not submitted.
+
+### Record (`aegis.lab.paired-trial.v2`)
+
+v2 replaced v1 to represent target-analysis observations. A v1 record is
+rejected as `retired_schema_version`; it is never reinterpreted as v2.
+
+- `experiment_id` (random), `pair_id`, `execution_mode: "offline"`, and
+  `started_at` / `finished_at` (UTC).
+- `provider`: `FakeOffline`, `offline:fake`, `external_disclosure: false`,
+  `independent_instance_per_trial: true`.
+- `authorization`: the manifests' reference and scope,
+  `is_execution_permission: false`, `core_attack_lab_gates:
+  "not_integrated"`, `live_inference: "disabled"`.
+- `order`: derivation, seed, `seed_source` (`operator` / `generated`) and
+  sequence.
+- `preparation`: the options needed to re-prepare the pair.
+- `comparability`: the controls that were checked, the observed Ghidra
+  runtime and `final_artifacts_identical`. It distinguishes shared settings
+  from generated requests:
+  - `declared_settings: "verified_for_both_trials"`: budgets, access, workflow
+    and configuration digests were checked for both trials, whatever their
+    analysis observed.
+  - `effective_request_settings` and `model_facing_task`: `identical` only
+    when both requests exist, otherwise `not_compared`.
+- `trials` (baseline, then protected), each with:
+  - `trial_id`, `manifest_sha256`, `artifact_sha256`, and the evidence
+    digest and size;
+  - `analysis`: the selector kind (`exact` / `wildcard`), `status`
+    (`decompiled` / `decompilation_failed`), Ghidra's `decompile_status`, and
+    the report's function, decompiled and failed counts. For a failure it
+    also holds `failure`: the status, the exporter's error and decompiler
+    message, each with SHA-256 and length, and the text kept verbatim when it
+    is valid text (otherwise `withheld: "invalid_text"`), plus the truncation
+    flag. The text is never printed to the terminal.
+  - `prepared` (prompt digest, prompt token bound, reservation, findings),
+    or `null` exactly when the target failed to decompile;
+  - `execution_position` and `state` (`record_produced`, `interrupted`,
+    `execution_refused`, `internal_error`, `not_started`,
+    `analysis_failure_recorded`);
+  - `outcome`, derived from the state and record: `candidate_received`,
+    `reconstruction_not_completed`, `reconstruction_interrupted`,
+    `execution_error`, `not_attempted_target_analysis_failed` or
+    `not_attempted_run_stopped`;
+  - `runner_wall_seconds`;
+  - a `reconstruction` reference (file, `file_sha256`, `record_sha256`,
+    status, stop reason, candidate digest, publication result);
+  - `resources` (attempts, submitted attempts, charged and reported tokens,
+    usage completeness, reservation overrun, elapsed time). These are all
+    zero for an analysis-failure trial;
+  - `error`.
+- `totals`, `errors`, `outcome`, `not_established`, `limitations` and
+  `record_signed: false`.
+
+`outcome` describes **workflow completion only**:
+
+- `run_status`: `finished`, `interrupted`, `execution_refused`,
+  `internal_error` or `publication_failed`.
+- `workflow_complete`, `trials_with_record`, `trials_completed` and
+  `trials_not_attempted_analysis_failed`.
+- `pair_status`, in this order of precedence:
+  - `incomplete`;
+  - `target_analysis_failure_observed`;
+  - `candidates_received_for_both_trials`;
+  - `trial_failures`.
+- `interpretation: "not_evaluated"`.
+- `candidate_origin: "offline_fake_provider"`.
+- These fields are fixed: `scoring: "not_performed"`,
+  `reconstruction_success_established: false` and
+  `protection_effect_established: false`.
+
+"Candidates received" is **not** successful reconstruction. No `resisted` or
+`bypassed` outcome exists. The two `*_established: false` fields mean that those
+properties have **not been evaluated or established**, not that reconstruction
+failed or protection was ineffective. No `ready_for_independent_scoring` claim
+is emitted; scripted offline candidates provide no model-reconstruction evidence.
+
+`parse_paired_trial_record` uses strict JSON (no duplicate keys or NaN) and
+a strict schema. It also re-derives these values from the trial facts:
+
+- the execution order, from the seed;
+- the execution positions;
+- each trial's state rules;
+- its derived `outcome`;
+- the consistency of its analysis observation;
+- an exact selector reporting exactly one successfully decompiled function;
+- `prepared` being present exactly when the target decompiled;
+- zero resources without a request;
+- the run status;
+- `workflow_complete`, the trial counts and `pair_status`;
+- whether generated requests are marked compared;
+- the totals and the error list;
+- `final_artifacts_identical`.
+
+A stored summary therefore cannot contradict the stored trials.
+
+`verify_experiment` (CLI `verify`) reloads the directory. It checks each
+published trial record's file digest and canonical digest, parses it
+strictly with Phase 3A rules, and compares every field the paired record
+repeats: identities, inputs, prompt digest, prompt bound, status, stop
+reason, candidate digest, resources and provider. This detects an edit such
+as a changed `trial_id` with recomputed digests, which Phase 3A alone cannot
+detect. When both manifests and both reports are given, it re-runs
+`prepare_pair` and compares the manifest, artifact, evidence and prompt
+digests, evidence size, prepared bounds and findings, authorization audit
+reference/scope and observed Ghidra runtime. It also compares the complete
+target-analysis observation and the presence or absence of a prepared request.
+An analysis-failure trial has no reconstruction record to reload, so its
+observation can be revalidated **only** against the inputs. An internally
+consistent but replaced observation passes `verify` without inputs.
+
+**Records are unsigned.** Verification establishes consistency between the
+files, not who wrote them.
+
+### Commands
+
+```sh
+.venv/bin/python -m aegis_lab.paired_trial run \
+  --baseline-manifest BASELINE.json --protected-manifest PROTECTED.json \
+  --baseline-evidence baseline/ghidra-analysis.json \
+  --protected-evidence protected/ghidra-analysis.json \
+  --output-dir /tmp/aegis-paired-1 --mode offline [--order-seed N] \
+  [--blinded] [--max-output-tokens N] [--top-p X]
+
+.venv/bin/python -m aegis_lab.paired_trial verify /tmp/aegis-paired-1 \
+  [--baseline-manifest ... --protected-manifest ... \
+   --baseline-evidence ... --protected-evidence ...]
+```
+
+Preparing the inputs uses the existing commands:
+
+1. `python -m aegis_lab.evidence ghidra-tool --headless ... --function F`
+   prints the Ghidra tool to declare in both manifests.
+2. `python -m aegis_lab.reconstruction plan --max-model-tokens N [--blinded]`
+   prints the three attack digests. `attack.provider` must be
+   `FakeOffline`.
+3. `python -m aegis_lab.ghidra --function F ...` produces one report per
+   artifact.
+
+`run` prints a terminal-safe JSON summary (no paths, evidence or candidate
+text). `verify` prints the same summary plus a `verification` line.
+
+Exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | both trials received a candidate (unscored) |
+| 1 | records published, but at least one trial did not receive a candidate (including a recorded target-analysis failure), or execution was refused |
+| 2 | invalid input or incomparable pair; `verify` found an inconsistency (no inference) |
+| 3 | internal error |
+| 5 | publication failed (the output directory exists or was replaced, or a record could not be written) |
+| 130 | interrupted (records published where possible) |
+
+Errors print `<role>: <field path>: <code>` only. Roles are
+`baseline-manifest`, `protected-evidence`, `pair`, `pair-evidence`,
+`<variant>-preparation`, `<variant>-provider`, `output-dir`,
+`<variant>-reconstruction`, `paired-record` and `inputs`. Rejected values
+and paths are never printed.
+
+### Limitations
+
+- Offline `FakeOffline` only. Its token figures and candidates are
+  scripted, so the recorded "resources" describe the fake run, not model
+  consumption.
+- `max_tool_calls` is neither consumed nor enforced. The model gets no
+  tools, and the Ghidra analysis ran before the trial and is not counted.
+- Each trial's prompt token bound depends on its own evidence. Reservations,
+  and the number of attempts a token budget allows, can therefore differ
+  between the trials. Both values are recorded.
+- The order seed is recorded, not committed in advance. An operator-chosen
+  seed could have been picked after the fact.
+- Only wildcard target failures are recorded as observations. Exact-selector
+  failures, auto-analysis timeouts and reports with no successful
+  decompilation are still invalid input. They exit 2 and produce no paired
+  record (see below).
+- The output directory's identity is checked before each publication, and
+  `publish_new_file` re-checks it around the link. A substitution between
+  those checks is not fully excluded. `verify` detects mismatched content
+  by digest.
+- An interrupt during the final paired-record publication (including the first
+  interrupt of the run) can prevent
+  `paired-trial.json` from being written. Trial records already published
+  remain, and `verify` reports `paired-record: not_found` if it was not linked.
+  If already linked, the complete record remains. There is no resume/recovery
+  command; preserve the partial directory and use a new directory for another run.
+- `runner_wall_seconds` is not revalidated on reload.
+
+### Target-analysis failures
+
+**Supported: a failed target in a valid wildcard report.** When Ghidra runs
+with `--function '*'`, a report can show that the target function failed to
+decompile (`timed_out`, `cancelled`, `failed_to_start` or `failed`) while at
+least one other function decompiled. Phase 2 validates and binds such a
+report normally (artifact, tool and configuration). Phase 3A refuses the
+target with `selected_function_failed`. Phase 3B then records the
+observation instead of discarding the experiment. This happens only when
+all of the following hold:
+
+- the report bound to this trial's own manifest;
+- exactly one exported function matches the target;
+- that function failed;
+- the selector was `*`;
+- Phase 3A's refusal code was exactly `selected_function_failed`;
+- the trial's declared settings pass the same checks as a prepared trial
+  (language, output-token bounds, prompt template, sampling and workflow
+  digests, and the provider name).
+
+Otherwise the input stays invalid.
+
+The trial has no request and no provider, and records zero attempts and
+tokens. The other trial runs normally, and both, one or neither trial may
+fail this way. The failure is **not evaluated**. It does not establish
+protection, reverse-engineering resistance, a failed behavioral
+reconstruction or any hidden-test result. It is an observation about this
+Ghidra configuration on this artifact. A decompiler timeout, for example,
+depends on host speed.
+
+**Unsupported (still invalid input, exit 2):**
+
+- a failed target under an exact selector;
+- an auto-analysis timeout;
+- a report in which no function decompiled;
+- a missing or ambiguous target.
+
+For the first three, the worker publishes no report, and the binder rejects
+an edited report that claims them. Accepting those reports would weaken
+Phase 2.
+
+**Interface a future Phase 2 task would need for those cases.** A new,
+versioned record would be required. It is not implemented, and its name is
+only a proposal, for example `aegis.lab.ghidra-failure.v1`. The worker would
+publish it, through the same exclusive publication, when analysis fails. It
+would need to carry:
+
+- the artifact SHA-256 the worker computed, plus Ghidra's own digest when it
+  was available;
+- the launcher, `application.properties` and exporter digests, and the full
+  `ghidra-configuration.v1` field set, so `configuration_sha256` binds it to
+  the declared tool exactly as reports are bound today;
+- the selector;
+- a fixed failure category (`analysis_timeout`, `selected_function_failed`,
+  `no_function_decompiled`, `exporter_error`) and the bounded, redacted
+  diagnostics;
+- the observed runtime (release, build date, Java), and the log byte count
+  and truncation flag.
+
+`aegis_lab.evidence` would then need a `bind_ghidra_failure(manifest,
+bytes)` that applies the same artifact and tool checks. Phase 3B would accept
+either a bound report or a bound failure record per trial. The record would
+also need an explicit worker exit classification, so that a crash or kill is
+not mistaken for an analysis outcome. That is a separate, scoped change to
+Phase 2.
+
+### Tests
+
+`tests/test_paired_trial.py` contains 130 offline tests and 1 opt-in
+real-Ghidra test for the paired workflow. They cover:
+
+- role, comparability, evidence and preparation failures before inference;
+- provider independence and the live-provider refusal;
+- seed reproducibility, including a fixed derivation vector;
+- trial identity under both orders, and cross-trial isolation;
+- one or both trials failing, deadline and budget failures, and
+  interruptions during a provider call, during record publication and
+  between trials;
+- refused and crashed executions, and partial and paired-record publication
+  failures;
+- directory replacement;
+- 29 kinds of record tampering;
+- verification of rewritten, swapped, missing and identity-forged files;
+- the CLI, and a check that no candidate is executed (process creation is
+  patched to fail).
+
+`tests/test_paired_trial_analysis.py` contains 64 offline tests and 1 opt-in
+real-Ghidra test for target-analysis failures. They cover:
+
+- a wildcard pair whose targets both decompile;
+- only the baseline target failing, only the protected target failing, and
+  both, under both execution orders;
+- that no provider is created or called and no reconstruction runs for a
+  failed target;
+- zero resources and correct totals;
+- retained diagnostics (kept and withheld text);
+- interruption and partial publication alongside an observation;
+- invalid inputs that stay invalid: an exact-selector failure, nothing
+  decompiled, a missing or ambiguous target, swapped evidence, a wrong
+  artifact hash, a corrupted report, unverifiable digests, an unenforceable
+  budget, an invalid language, and a live-provider manifest;
+- 21 kinds of contradictory observation and the retired v1 schema;
+- replaced observation facts, which are detected against the inputs;
+- changed prepared-pair facts rejected before provider creation, exact-selector
+  observation counts, and diagnostic secrecy when paired publication fails;
+- the CLI.
+
+The opt-in real-Ghidra tests compile AEGIS-owned fixtures, which are never
+executed:
+
+- `test_paired_trial.py` runs a full pair. Its "protected" fixture is a
+  hand-rewritten stand-in, **not** a Shield output, and says nothing about
+  protection.
+- `test_paired_trial_analysis.py` compiles a large target. A real Ghidra
+  12.1.4 wildcard run with a 1 s decompile timeout reports it as `timed_out`
+  while `main` decompiles. Neither report is edited. If a faster host
+  decompiles the target within 1 s, the test is **skipped**, not passed.
+
+```sh
+AEGIS_GHIDRA_HEADLESS="$HOME/Applications/ghidra_12.1.4_PUBLIC/support/analyzeHeadless" \
+  .venv/bin/python -m pytest attack_lab/tests/test_paired_trial.py attack_lab/tests/test_paired_trial_analysis.py -q
+```
