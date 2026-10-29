@@ -6,7 +6,7 @@ disagree, the code is right and this document has a bug.
 ## Four active engineering streams (28 October 2026)
 
 - **A — Core Platform, Shield & Integration:** `core/`, `platform/api/`, `platform/cli/`, `protectors/llvm/` including `adapter/`, `demo/image_processor/`, governance and CI. See issue #9.
-- **B — Adversarial AI Lab & Mirage:** `attack_lab/` and `protectors/mirage/` (planned), issue #10.
+- **B — Adversarial AI Lab & Mirage:** `attack_lab/` (partial; see attack_lab/README.md) and `protectors/mirage/` (planned), issue #10.
 - **C — Frontend & Product Experience:** `platform/dashboard/` (planned), issue #11.
 - **D — Signature, Sentinel & Verification:** `provenance/` and `sentinel/` (planned), issue #12. First deliverable is offline signed provenance; policy and watermark research follow separately.
 
@@ -47,7 +47,8 @@ Issue #7 separately coordinates cross-ecosystem tests using PhotoCraft, the reVC
 | `protectors/llvm/` | AEGIS Shield (`AegisShield.so`) | C++20 LLVM pass plugin, CMake, LLVM ≥22 | prototype; connected through adapter below |
 | `protectors/llvm/adapter/` | LLVM Shield adapter | Python ≥3.11, POSIX, stdlib | implemented; textual IR, LLVM 22, explicit registration |
 | `demo/image_processor/` | ImageLab controlled application/harness | C++20, CMake, Python stdlib tests | implemented; native/IR baseline/Shield/external variants |
-| `attack_lab/`, `protectors/mirage/` | Adversarial evaluation and decoys | to be decided | planned |
+| `attack_lab/` | `aegis-lab` / `aegis_lab` | Python ≥3.11, pydantic; Java Ghidra post-script | partial: v2 trial manifests and pair validation; bounded local Ghidra evidence export; unsigned evidence binding. No attack execution, Core adapter or model calls. |
+| `protectors/mirage/` | Mirage decoys | to be decided | planned |
 | `provenance/`, `sentinel/` | Signing, watermark/policies | to be decided | planned |
 | `platform/dashboard/` | Developer frontend | to be decided | planned |
 
@@ -221,6 +222,8 @@ budget, status and reason consistency). Success records reported arithmetic
 expansions and verified IR, with **no established security property**. Private
 partial files may remain after a hard timeout or failed publication; failed jobs
 never register them as outputs.
+
+Lab tools do not implement or bypass Core's two attack-lab authorization gates. Linking Lab authorization references to `AttackLabAuthorization` remains a coordinated future integration task.
 
 ## 8. Open architecture issues
 
