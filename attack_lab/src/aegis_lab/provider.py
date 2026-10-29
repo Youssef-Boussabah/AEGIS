@@ -639,7 +639,7 @@ class NebiusProvider:
     """
 
     external_disclosure = True
-    __slots__ = ("_api_key", "_endpoint", "_host", "_port", "_path_prefix", "_connect_timeout",
+    __slots__ = ("_allow_live", "_evidence_sink", "_api_key", "_endpoint", "_host", "_port", "_path_prefix", "_connect_timeout",
                  "_read_timeout", "_ssl_context", "_provider_name", "_monotonic", "_wall_clock")
 
     def __init__(
@@ -653,6 +653,8 @@ class NebiusProvider:
         provider_name: str = "Nebius",
         monotonic: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], float] = time.time,
+        allow_live: bool = False,
+        evidence_sink: Callable[[str, bytes], None] | None = None,
     ) -> None:
         if not isinstance(api_key, str) or not api_key.strip() or not api_key.isprintable():
             raise ValueError("a non-empty printable API key is required")
@@ -671,6 +673,8 @@ class NebiusProvider:
         self._provider_name = provider_name
         self._monotonic = monotonic
         self._wall_clock = wall_clock
+        self._allow_live = allow_live is True
+        self._evidence_sink = evidence_sink
 
     @classmethod
     def from_environment(cls, environ: dict[str, str] | None = None, **kwargs: Any) -> NebiusProvider:
@@ -696,6 +700,8 @@ class NebiusProvider:
         )
 
     def complete(self, request: InferenceRequest, *, timeout: float) -> InferenceResponse:
+        if not self._allow_live:
+            raise PermissionError("live_opt_in_required")
         if not (isinstance(timeout, (int, float)) and math.isfinite(timeout)):
             raise ValueError("timeout must be a finite number")
         deadline = self._monotonic() + timeout
@@ -707,6 +713,8 @@ class NebiusProvider:
             return min(cap, remaining)
 
         body = json.dumps(request.to_body(), ensure_ascii=False, allow_nan=False).encode("utf-8")
+        if self._evidence_sink is not None:
+            self._evidence_sink("request", body)  # never headers or credentials
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
@@ -754,6 +762,8 @@ class NebiusProvider:
             # A 200 means the request was processed (and possibly billed) even though the body is unusable.
             submission = "completed" if status == 200 else classify_http_status(status)[1]
             raise ProviderError("oversized_response", submission=submission, status=status)
+        if self._evidence_sink is not None:
+            self._evidence_sink("response", payload)
         if status == 200:
             return parse_completion(payload)
         provider_type, provider_code = _error_identifiers(payload)

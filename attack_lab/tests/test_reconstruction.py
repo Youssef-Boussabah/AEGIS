@@ -621,7 +621,7 @@ def test_regression_lost_response_issues_exactly_one_post(tmp_path, monkeypatch)
     _, prepared = roomy(tmp_path, provider="Nebius")
     LostResponseConnection.posts = 0
     monkeypatch.setattr(NebiusProvider, "_connect", lambda self: LostResponseConnection())
-    nebius = NebiusProvider("DUMMY-NOT-A-CREDENTIAL")
+    nebius = NebiusProvider("DUMMY-NOT-A-CREDENTIAL", allow_live=True)
     # Drive the production attempt loop directly; the public entry point refuses live providers.
     record = _execute(prepared, nebius, approval=approval_for(prepared), monotonic=Clock(), sleep=no_sleep)
     assert LostResponseConnection.posts == 1
@@ -1154,7 +1154,7 @@ def test_regression2_nebius_transport_rejection_issues_exactly_one_post(tmp_path
     monkeypatch.setattr(NebiusProvider, "_connect",
                         lambda self: FakeConnection(status=status, body=b"{}", headers={"Retry-After": "1"}))
     clock = Clock()
-    record = _execute(prepared, NebiusProvider("DUMMY-NOT-A-CREDENTIAL"), approval=approval_for(prepared),
+    record = _execute(prepared, NebiusProvider("DUMMY-NOT-A-CREDENTIAL", allow_live=True), approval=approval_for(prepared),
                       monotonic=clock, sleep=clock.sleep)
     assert sum(len(c.requests) for c in FakeConnection.instances) == 1
     assert record.outcome.stop_reason == "non_retryable_error"
