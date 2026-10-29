@@ -203,3 +203,149 @@ def parse_strict_json(data: bytes) -> object:
         raise LoadError("non_finite_number") from None
     except (ValueError, RecursionError):  # JSONDecodeError, integer digit limit, deep nesting
         raise LoadError("malformed_json") from None
+
+
+# --- Exclusive publication --------------------------------------------------------------------
+#
+# Publication policy (``publish_new_file``), the write-side counterpart of the read policy:
+#
+# - The parent directory is opened once with ``O_DIRECTORY | O_NOFOLLOW``; every later name is
+#   resolved relative to that descriptor, so swapping a path component cannot redirect a write.
+# - The data goes to a private (0600) temporary file created with ``O_EXCL | O_NOFOLLOW`` in that
+#   directory, is fully written and fsynced, and is then hard-linked to the final name.
+#   ``link`` never replaces an existing entry, so an existing file, symlink, FIFO, socket or
+#   directory at the destination is refused and never followed or overwritten.
+# - The directory is fsynced after the link; the temporary name is always removed.
+# - If the directory path no longer names the opened directory (it was replaced), publication is
+#   refused before the link, and reported if detected after it.
+# - Filesystems without hard links are refused (fail closed) rather than falling back to an
+#   overwriting rename.
+#
+# Every failure is a ``PublishError`` with a fixed ``category``; it never contains a path.
+
+PUBLISH_ERROR_CATEGORIES = frozenset({
+    "invalid_path",
+    "too_large",
+    "parent_not_found",
+    "parent_not_directory",
+    "parent_symlink_rejected",
+    "permission_denied",
+    "already_exists",
+    "write_failed",
+    "directory_replaced",
+    "unsupported_filesystem",
+})
+
+
+class PublishError(OSError):
+    """A file could not be published. ``category`` is safe to show to users."""
+
+    def __init__(self, category: str) -> None:
+        if category not in PUBLISH_ERROR_CATEGORIES:
+            raise AssertionError(f"unregistered publish error category {category!r}")
+        self.category = category
+        super().__init__(category)
+
+
+def _same_directory(dir_fd: int, path: Path) -> bool:
+    try:
+        opened, current = os.fstat(dir_fd), os.lstat(path)
+    except OSError:
+        return False
+    return stat.S_ISDIR(current.st_mode) and (opened.st_dev, opened.st_ino) == (current.st_dev, current.st_ino)
+
+
+def publish_new_file(path: str | os.PathLike[str], data: bytes, max_bytes: int) -> None:
+    """Atomically create ``path`` with ``data``; never replace or follow anything already there."""
+    if max_bytes < 1:
+        raise ValueError("max_bytes must be positive")
+    if not isinstance(data, bytes):
+        raise TypeError("data must be bytes")
+    if len(data) > max_bytes:
+        raise PublishError("too_large")
+    try:
+        target = Path(path)
+        name = target.name
+        parent = target.parent
+    except (TypeError, ValueError):
+        raise PublishError("invalid_path") from None
+    if name in ("", ".", "..") or "\x00" in str(target) or (name.startswith(".") and name.endswith(".partial")):
+        raise PublishError("invalid_path")
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    try:
+        dir_fd = os.open(parent, flags)
+    except FileNotFoundError:
+        raise PublishError("parent_not_found") from None
+    except PermissionError:
+        raise PublishError("permission_denied") from None
+    except NotADirectoryError:
+        # Linux reports ENOTDIR for O_DIRECTORY|O_NOFOLLOW on a symlink to a directory.
+        try:
+            is_link = os.path.islink(parent)
+        except (OSError, ValueError):
+            is_link = False
+        raise PublishError("parent_symlink_rejected" if is_link else "parent_not_directory") from None
+    except ValueError:
+        raise PublishError("invalid_path") from None
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise PublishError("parent_symlink_rejected") from None
+        raise PublishError("write_failed") from None
+    partial = f".{name[:64]}.{os.urandom(8).hex()}.partial"
+    try:
+        try:
+            os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            raise PublishError("write_failed") from None
+        else:
+            raise PublishError("already_exists")
+        try:
+            fd = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600,
+                         dir_fd=dir_fd)
+        except PermissionError:
+            raise PublishError("permission_denied") from None
+        except OSError:
+            raise PublishError("write_failed") from None
+        try:
+            try:
+                view = memoryview(data)
+                while view:
+                    written = os.write(fd, view)
+                    view = view[written:]
+                os.fsync(fd)
+            except OSError:
+                raise PublishError("write_failed") from None
+        finally:
+            os.close(fd)
+        if not _same_directory(dir_fd, parent):
+            raise PublishError("directory_replaced")
+        try:
+            os.link(partial, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd, follow_symlinks=False)
+        except FileExistsError:
+            raise PublishError("already_exists") from None
+        except PermissionError:
+            raise PublishError("permission_denied") from None
+        except OSError as exc:
+            if exc.errno in (errno.EPERM, errno.EOPNOTSUPP, errno.ENOTSUP, errno.EXDEV, errno.EMLINK):
+                raise PublishError("unsupported_filesystem") from None
+            raise PublishError("write_failed") from None
+        try:
+            os.fsync(dir_fd)
+        except OSError:
+            raise PublishError("write_failed") from None
+        if not _same_directory(dir_fd, parent):
+            # The file was published into the directory that was opened, which has since been
+            # moved or replaced. Report it instead of claiming the path now holds the record.
+            raise PublishError("directory_replaced")
+    finally:
+        try:
+            os.unlink(partial, dir_fd=dir_fd)
+        except OSError:
+            pass
+        try:
+            os.fsync(dir_fd)
+        except OSError:
+            pass
+        os.close(dir_fd)
