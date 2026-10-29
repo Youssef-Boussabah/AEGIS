@@ -4,6 +4,7 @@
 - **Role:** D — Signature, Sentinel & Verification
 - **Branch:** `feat/signature-sentinel`
 - **GitHub Issue:** #12
+- **Pull Request:** #16
 - **Owned Paths:** `provenance/`, `sentinel/`
 - **Mission:** Implement offline signed provenance manifests, public-key verification, machine-readable Sentinel rights/usage policy records, and watermark research with empirical controls.
 
@@ -13,11 +14,11 @@
 
 ### 1. Environment & Baseline (Completed)
 - [x] Switched to `feat/signature-sentinel` branch.
+- [x] Synchronized with `origin/dev/integration` via clean merge.
 - [x] Initialized local virtual environment (`.venv`) with Python 3.13.
-- [x] Installed `core`, `platform/api`, `platform/cli` in editable mode.
+- [x] Installed `core`, `platform/api`, `platform/cli`, `provenance`, `sentinel` in editable mode.
 - [x] Installed standard cryptographic library (`cryptography-50.0.2`).
-- [x] Verified baseline test suite: 105 core/api/cli tests pass.
-- [x] Resolved Windows cross-platform compatibility in `adapter.py` and `test_core_orchestrator.py`.
+- [x] Verified baseline test suite: all 141 tests pass (105 base + 25 provenance + 11 sentinel).
 - [x] Maintained `provenance/ERRORS.md` and `provenance/MEMORY.md`.
 
 ### 2. Provenance Manifest Specification & Implementation (`provenance/`) (Completed)
@@ -57,8 +58,8 @@
   - Transformation retention measured: formatting/whitespace preserved (100%), comments stripped preserved (100%), full metadata stripping removes mark (0.0%).
 - [x] Documented findings, capacity, false-positive behavior, and limitations in `provenance/RESEARCH_WATERMARK.md`.
 
-### 5. Integration, Documentation & Verification (Completed)
-- [x] Updated root `pyproject.toml` to include all test paths: `core/tests`, `platform/api/tests`, `platform/cli/tests`, `provenance/tests`, `sentinel/tests`.
-- [x] Complete test run: **141 tests collected, 141 passed (100%)**.
-- [x] Updated `provenance/README.md` and `sentinel/README.md` with complete architecture and CLI reference.
-- [x] Created `provenance/HANDOFF.md` adhering strictly to section 12 agent handoff format.
+### 5. Integration Feedback & PR #16 Resolution (Completed)
+- [x] Addressed Blocker 1: Updated `scripts/setup-python.sh` to install `provenance[dev]` and `sentinel[dev]`, eliminating clean-clone CI collection errors.
+- [x] Addressed Blocker 2: Updated `core/src/aegis_core/adapter.py` to use `taskkill /F /T /PID` on Windows for verified whole-process-tree termination, matching ARCHITECTURE.md §6 invariants. Replaced path assertion in `test_core_orchestrator.py` with standard `Path(argv[-1]).as_posix()`.
+- [x] Addressed Blocker 3: Updated `ARCHITECTURE.md` with Section 8 ("Provenance and Sentinel architecture"), components table, and trust boundaries. Updated `docs/PROJECT_STATUS.md`.
+- [x] All 141 tests passing locally.

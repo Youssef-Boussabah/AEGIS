@@ -23,7 +23,7 @@
 | A Core, Shield, Integration | #9 | Scope defined; CI, governance, final-binary retention and Shield v2 remain work |
 | B Adversarial Lab and Mirage | #10 | Scope defined; no real reconstruction backend yet |
 | C Frontend and UI | #11 | Scope defined; implementation status not established |
-| D Signature and Sentinel | #12 | Scope defined; signing not established |
+| D Signature and Sentinel | #12 | Implemented; offline signed provenance, Sentinel policies, watermark research (36 tests passed) |
 | External benchmark profiles | #7 | PhotoCraft, reVC and Mattermost selected; integrations not demonstrated |
 
 ## Immediate integration blockers

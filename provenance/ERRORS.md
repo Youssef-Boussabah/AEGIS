@@ -17,8 +17,8 @@ This file tracks errors, root causes, and solutions encountered during the devel
 - **Context:** Running `test_untrusted_values_never_reach_a_shell` on Windows host in `core/tests/test_core_orchestrator.py`.
 - **Symptom:** `AssertionError: assert False` where `argv[-1].endswith("adapter/request.json")` failed.
 - **Root Cause:** Path in `argv[-1]` on Windows used backslashes `\` (`...\\.aegis\\jobs\\...\\adapter\\request.json`), failing the forward-slash string ending check.
-- **Solution:** In `core/tests/test_core_orchestrator.py:241`, normalize path with `argv[-1].replace("\\", "/").endswith("adapter/request.json")`.
-- **Outcome:** Passes on all platforms without weakening the assertion.
+- **Solution:** In `core/tests/test_core_orchestrator.py:241`, normalize path with `assert Path(argv[-1]).as_posix().endswith("adapter/request.json")`.
+- **Outcome:** Passes on all platforms cleanly with standard `pathlib` semantics without weakening the assertion.
 
 ---
 
@@ -46,3 +46,20 @@ This file tracks errors, root causes, and solutions encountered during the devel
 - **Root Cause:** Both test directories contained a file named `test_cli.py`. When `__init__.py` was present in `tests/`, Pytest imported them into the same root package name, causing collisions.
 - **Solution:** Removed package `__init__.py` from `tests/` and gave test files unique module basenames (`test_prov_*` and `test_sentinel_*`).
 - **Outcome:** Pytest discovers and runs all 141 tests cleanly across all 5 test directories.
+
+---
+
+### Error 006: Integration Feedback & CI Collection Failure (PR #16 / CI Run 40771994403)
+- **Context:** Upstream review on PR #16 by Stream A / integration team.
+- **Symptom:**
+  1. Clean-clone GitHub CI failed with 8 collection errors on `provenance/tests` and `sentinel/tests`.
+  2. Core adapter process termination on Windows (`proc.kill()`) did not kill the whole process tree as required by ARCHITECTURE.md §6.
+  3. Architecture documentation lacked implemented contract descriptions for Workstream D.
+- **Root Cause:**
+  1. `scripts/setup-python.sh` installed only Core/API/CLI into `.venv`, while root `pyproject.toml` included Provenance and Sentinel tests.
+  2. Windows does not support `os.killpg`; `proc.kill()` only terminates the parent process.
+- **Solution:**
+  1. Updated `scripts/setup-python.sh` to install `-e "$ROOT/provenance[dev]"` and `-e "$ROOT/sentinel[dev]"`.
+  2. Updated `_kill_process_group` in `core/src/aegis_core/adapter.py` to use `taskkill /F /T /PID <proc.pid>` on Windows for verified whole-tree termination.
+  3. Added Section 8 to `ARCHITECTURE.md` detailing Provenance, Sentinel, and Watermark contracts, boundaries, and updated `docs/PROJECT_STATUS.md`.
+- **Outcome:** Clean-clone setup installs all required packages and dependencies, verified process tree kill on Windows, and architecture documentation fully up-to-date.
