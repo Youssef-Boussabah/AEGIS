@@ -13,5 +13,5 @@
 # Running pytest inside a package directory uses that package's own settings.
 # The LLVM plugin uses CTest. Its Python adapter suite needs an explicit
 # protectors/llvm/adapter/tests path and matching tools (see AGENTS.md).
-testpaths = ["core/tests", "platform/api/tests", "platform/cli/tests"]
+testpaths = ["core/tests", "platform/api/tests", "platform/cli/tests", "provenance/tests", "sentinel/tests"]
 addopts = "-ra"

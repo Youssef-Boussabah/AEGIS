@@ -8,7 +8,7 @@ disagree, the code is right and this document has a bug.
 - **A — Core Platform, Shield & Integration:** `core/`, `platform/api/`, `platform/cli/`, `protectors/llvm/` including `adapter/`, `demo/image_processor/`, governance and CI. See issue #9.
 - **B — Adversarial AI Lab & Mirage:** `attack_lab/` (partial; see attack_lab/README.md) and `protectors/mirage/` (planned), issue #10.
 - **C — Frontend & Product Experience:** `platform/dashboard/` (planned), issue #11.
-- **D — Signature, Sentinel & Verification:** `provenance/` and `sentinel/` (planned), issue #12. First deliverable is offline signed provenance; policy and watermark research follow separately.
+- **D — Signature, Sentinel & Verification:** `provenance/` (implemented) and `sentinel/` (implemented), issue #12. Offline signed provenance manifests, public-key verification, Sentinel rights policies, and watermark research.
 
 Issue #7 separately coordinates cross-ecosystem tests using PhotoCraft, the reVC branch of re-GTA, and Mattermost. ImageLab remains the controlled internal regression target. Protectors must never use benchmark names or target-specific answer logic. See [ownership and dependencies](docs/TEAM_WORKSTREAMS.md).
 
@@ -49,7 +49,8 @@ Issue #7 separately coordinates cross-ecosystem tests using PhotoCraft, the reVC
 | `demo/image_processor/` | ImageLab controlled application/harness | C++20, CMake, Python stdlib tests | implemented; native/IR baseline/Shield/external variants |
 | `attack_lab/` | `aegis-lab` / `aegis_lab` | Python ≥3.11, pydantic; Java Ghidra post-script | partial: v2 trial manifests and pair validation; bounded local Ghidra evidence export; unsigned evidence binding. No attack execution, Core adapter or model calls. |
 | `protectors/mirage/` | Mirage decoys | to be decided | planned |
-| `provenance/`, `sentinel/` | Signing, watermark/policies | to be decided | planned |
+| `provenance/` | `aegis-provenance` / `aegis_provenance` | Python ≥3.11, hatchling, cryptography | implemented; RFC 8785 canonical JSON, Ed25519 offline signing/verification, watermark embedding & detector |
+| `sentinel/` | `aegis-sentinel` / `aegis_sentinel` | Python ≥3.11, hatchling, pydantic | implemented; versioned machine-readable rights and usage policies, validation and cooperating tool evaluation |
 | `platform/dashboard/` | Developer frontend | to be decided | planned |
 
 The Python packages are named `aegis_*` because a top-level package called
@@ -225,7 +226,26 @@ never register them as outputs.
 
 Lab tools do not implement or bypass Core's two attack-lab authorization gates. Linking Lab authorization references to `AttackLabAuthorization` remains a coordinated future integration task.
 
-## 8. Open architecture issues
+## 8. Provenance and Sentinel architecture (Workstream D)
+
+`aegis-provenance` and `aegis-sentinel` provide cryptographic build record verification and machine-readable rights metadata. Both modules are self-contained and run offline without coupling to the compiler plugins or attack lab.
+
+| Concern | Contract and Implementation |
+| --- | --- |
+| Provenance Manifest | `ProvenanceManifest` binds final artifact SHA-256 and size, source repository, commit hash, compiler/toolchain, configuration identity, signer identity, and public key fingerprint (`key_id`). Formatted as deterministic canonical JSON (RFC 8785) and signed with Ed25519 (RFC 8032) wrapped in a `ManifestEnvelope`. |
+| Offline Verification | `verify_artifact_manifest` validates against explicit trusted public keys. It fails closed on tampered artifacts (`ARTIFACT_TAMPERED`), modified manifest fields (`SIGNATURE_INVALID`), untrusted keys (`UNTRUSTED_KEY`), key ID mismatches (`KEY_ID_MISMATCH`), malformed envelopes (`MANIFEST_MALFORMED`), and unsupported schema versions (`UNSUPPORTED_VERSION`). |
+| Sentinel Rights Policy | `SentinelPolicy` defines versioned machine-readable rights and usage rules. An explicit `enforcement_mode` (`advisory_notice` vs `cooperating_enforced`) distinguishes declared rights notices from actively enforced rules. |
+| Policy Evaluator | Evaluates whether actions (`execute`, `analyze`, `redistribute`, `modify`, `attack_evaluate`) are permitted for cooperating tools based on artifact hash linkage, temporal window (`not_before`, `expires_at`), environment, caller ID, and watermark requirements. |
+| Watermark Research | Binary framed watermark (magic sync `\x1bAEGIS_WM\x01` / `\x1bEND_WM\x1b`, uint16 length, CRC32 checksum) and textual LLVM IR metadata nodes (`!aegis.watermark`) / comments. Empirical controls establish 0.0% False Positive Rate (50 unmarked controls) and 100% True Positive Rate. |
+
+### Trust Boundaries and Security Invariants
+
+1. **Signer Attestation vs Authorship:** A valid signature proves the holder of the trusted private key attested to the artifact digest and manifest metadata at signing time. It does not prove originality, intellectual property ownership, or complete absence of vulnerabilities in the source code.
+2. **Private Key Isolation:** Private keys are stored in PKCS#8 PEM format (with optional encryption) strictly outside Git, logs, and public artifact stores. Only public verification keys and key IDs are shared.
+3. **Advisory Notice vs Enforcement:** Merely publishing a Sentinel policy document does not bind or compel non-cooperating third-party tools or external decompilers. Compliance requires an active gate in a cooperating runtime or orchestrator.
+4. **Watermarking Limits:** Watermarking provides passive provenance tagging. Trailing binary frames and LLVM IR metadata nodes do not survive aggressive optimization passes that strip debug metadata (`opt -strip-debug`, `strip`).
+
+## 9. Open architecture issues
 
 | ID | Issue |
 | --- | --- |

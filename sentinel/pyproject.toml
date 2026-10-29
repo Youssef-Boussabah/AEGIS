@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aegis-sentinel"
+version = "0.1.0"
+description = "AEGIS Sentinel machine-readable rights and usage policy records."
+requires-python = ">=3.11"
+dependencies = [
+    "aegis-core",
+    "pydantic>=2.7,<3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+aegis-sentinel = "aegis_sentinel.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aegis_sentinel"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
