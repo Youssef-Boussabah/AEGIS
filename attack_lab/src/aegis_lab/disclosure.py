@@ -104,6 +104,12 @@ POLICY_ERROR_CODES = frozenset({
 })
 
 APPROVAL_ERROR_CODES = frozenset({
+    "inference_approval_required",
+    "inference_scope_mismatch",
+    "inference_budget_not_approved",
+    "inference_approval_already_used",
+    "request_deadline_expired",
+    "bounded_transport_required",
     "live_opt_in_required",
     "disclosure_approval_required",
     "approval_not_yet_valid",
@@ -350,3 +356,49 @@ def check_disclosure_approval(
         raise AuthorizationError("model_not_approved")
     if not set(findings) <= set(approval.acknowledged_findings):
         raise AuthorizationError("findings_not_acknowledged")
+
+
+class InferenceApproval(BaseModel):
+    """Single-use operator approval for one exact inference-only experiment.
+
+    Separate from Core authorization: it grants no compilation, program execution,
+    oracle, source/repository access or hidden-test access. The operator reviews
+    the base prompt and permits only the bounded evidence/reply continuation.
+    The CLI consumes its digest once in a private state directory before network.
+    Provider retention is a reviewed policy statement, not a guarantee by Lab.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    schema_version: Literal["aegis.lab.inference-approval.v1"] = "aegis.lab.inference-approval.v1"
+    operator_approved: Literal[True]
+    purpose: Literal["inference_only_no_candidate_execution"] = "inference_only_no_candidate_execution"
+    disclosure: ExternalDisclosureApproval
+    manifest_sha256: Hash
+    workflow_sha256: Hash
+    max_requests: Annotated[int, Field(strict=True, ge=1, le=16)]
+    max_total_tokens: Annotated[int, Field(strict=True, ge=1, le=100_000_000)]
+    max_spend_microusd: Annotated[int, Field(strict=True, ge=1, le=1_000_000_000)]
+    context_tokens: Annotated[int, Field(strict=True, ge=1, le=10_000_000)]
+    input_microusd_per_million: Annotated[int, Field(strict=True, ge=1, le=1_000_000_000)]
+    output_microusd_per_million: Annotated[int, Field(strict=True, ge=1, le=1_000_000_000)]
+    request_timeout_seconds: Annotated[int, Field(strict=True, ge=1, le=3600)]
+    request_deadline: AwareDatetime
+    private_archive_delete_after: AwareDatetime
+    provider_retention_policy: Description
+    provider_retention_reviewed: Literal[True]
+    continuation_scope: Literal["bound_evidence_and_model_replies_only"] = "bound_evidence_and_model_replies_only"
+    request_store: Literal[False] = False
+
+    @model_validator(mode="after")
+    def _scope(self):
+        from .provider import NEBIUS_BASE_URL
+
+        if self.disclosure.provider != "Nebius" or self.disclosure.endpoint != canonical_endpoint(NEBIUS_BASE_URL):
+            raise ValueError("official_nebius_endpoint_required")
+        if not self.disclosure.model_id or not self.disclosure.model_id.startswith("nvidia/"):
+            raise ValueError("explicit_nvidia_model_required")
+        if not self.disclosure.valid_from < self.request_deadline <= self.disclosure.expires_at:
+            raise ValueError("deadline_outside_approval")
+        if self.private_archive_delete_after <= self.request_deadline:
+            raise ValueError("invalid_archive_retention")
+        return self

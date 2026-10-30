@@ -1,7 +1,7 @@
 """REA-style controlled iterative reconstruction over already bound Ghidra evidence.
 
 No REA branding/integration claim, shell, runtime oracle, file-reading tool or
-candidate execution. Live inference remains closed by the existing Lab gate.
+candidate execution. Live inference requires its own narrow operator approval.
 Only the prepared prompt's target evidence can be inspected. Provider replies,
 explicit analysis text and revisions are private, content-addressed artifacts.
 """
@@ -12,12 +12,15 @@ import json
 import time
 from collections.abc import Callable
 from pathlib import Path
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from .canonical import canonical_json_bytes, canonical_sha256
 from .fake_provider import FakeProvider
+from .disclosure import InferenceApproval
+from .inference import check_inference_approval, claim_approval, worst_request_cost
 from .manifest import Hash, TrialManifest
 from .private_evidence import PrivateEvidence
 from .provider import InferenceProvider, InferenceRequest, Message, ProviderError, ProviderIdentity, Usage
@@ -83,6 +86,7 @@ class Step(Strict):
     latency_seconds: float = Field(ge=0, allow_inf_nan=False)
     outcome: str = Field(min_length=1, max_length=100)
     candidate_sha256: Hash | None
+    submission: Literal["completed", "not_submitted", "rejected", "uncertain"] = "completed"
 
 
 class ExperimentRecord(Strict):
@@ -104,8 +108,15 @@ class ExperimentRecord(Strict):
     steps: tuple[Step, ...] = Field(max_length=16)
     charged_tokens: Annotated[StrictInt, Field(ge=0)]
     reported_tokens: Annotated[StrictInt, Field(ge=0)]
-    cost_microusd: Literal[0] = 0
-    cost_basis: Literal["offline_no_inference_charge"] = "offline_no_inference_charge"
+    cost_microusd: Annotated[StrictInt, Field(ge=0)] | None = 0
+    cost_basis: Literal["offline_no_inference_charge", "provider_invoice_unknown"] = "offline_no_inference_charge"
+    inference_approval_sha256: Hash | None = None
+    started_at: AwareDatetime | None = None
+    finished_at: AwareDatetime | None = None
+    catalogue_sha256: Hash | None = None
+    account_models_sha256: Hash | None = None
+    reserved_spend_microusd: Annotated[StrictInt, Field(ge=0)] = 0
+    estimated_reported_cost_microusd: Annotated[StrictInt, Field(ge=0)] | None = None
     candidate_sha256: Hash | None
     generation_status: str = Field(min_length=1, max_length=100)
     behavioral_scoring: Literal["pending_authorized_core_runtime"] = "pending_authorized_core_runtime"
@@ -122,7 +133,14 @@ class ExperimentRecord(Strict):
     @model_validator(mode="after")
     def _ledger(self):
         if self.provider.external_disclosure:
-            raise ValueError("live_inference_disabled")
+            if (self.inference_approval_sha256 is None or self.cost_microusd is not None
+                    or self.cost_basis != "provider_invoice_unknown" or self.started_at is None or self.finished_at is None
+                    or self.finished_at < self.started_at):
+                raise ValueError("live_record_requires_approval_and_truthful_cost")
+            if self.steps and (self.catalogue_sha256 is None or self.account_models_sha256 is None):
+                raise ValueError("live_record_requires_model_verification")
+        elif self.inference_approval_sha256 is not None or self.cost_microusd != 0 or self.reserved_spend_microusd:
+            raise ValueError("offline_record_must_not_claim_live_inference")
         if len(self.steps) > self.max_requests or self.max_requests > self.configuration.max_steps:
             raise ValueError("request_budget_exceeded")
         if [s.index for s in self.steps] != list(range(1, len(self.steps) + 1)):
@@ -141,6 +159,20 @@ class ExperimentRecord(Strict):
         return self
 
 
+def live_workflow_sha256(configuration):
+    return canonical_sha256({"schema": "aegis.lab.live-workflow.v1", "instructions": _INSTRUCTIONS,
+                             "configuration": configuration.model_dump(mode="json"),
+                             "action_schema": Action.model_json_schema(), "store": False,
+                             "max_completion_tokens": "same_as_max_output_tokens_including_reasoning",
+                             "service_tier": "default", "instructions_placement": "append_to_initial_system_message",
+                             "token_reservation": "published_full_context_plus_output_per_request"})
+
+
+def initial_messages(prepared):
+    return (Message(role="system", content=prepared.request.messages[0].content + "\n\n" + _INSTRUCTIONS),
+            *prepared.request.messages[1:])
+
+
 ProviderFactory = Callable[[Callable[[str, bytes], None]], InferenceProvider]
 
 
@@ -150,30 +182,53 @@ def offline_factory(sink):
 
 def run_experiment(prepared: PreparedReconstruction, artifact: Path, output_dir: Path, *,
                    configuration: WorkflowConfig = WorkflowConfig(), provider_factory: ProviderFactory = offline_factory,
-                   monotonic: Callable[[], float] = time.monotonic) -> ExperimentRecord:
-    """Validate identity, run bounded offline steps, publish private evidence. Never execute code."""
+                   monotonic: Callable[[], float] = time.monotonic,
+                   inference_approval: InferenceApproval | None = None, allow_live: bool = False,
+                   approval_state_dir: Path | None = None) -> ExperimentRecord:
+    """Run offline or explicitly approved bounded inference, archive all outcomes. No code execution."""
     verify_prepared(prepared)
     artifact_bytes = read_regular_file(artifact, 64 * 1024 * 1024)
     if hashlib.sha256(artifact_bytes).hexdigest() != prepared.artifact_sha256:
         raise ValueError("artifact_digest_mismatch")
+    if inference_approval is not None:
+        inference_approval = check_inference_approval(prepared, configuration, inference_approval, allow_live=allow_live)
+        if approval_state_dir is None:
+            raise ValueError("approval_state_directory_required")
     captured: dict[str, bytes] = {}
 
     def sink(kind, data):
-        if kind not in ("request", "response") or type(data) is not bytes or len(data) > 8 * 1024 * 1024:
+        if kind not in ("request", "response", "account_models", "public_catalogue") or type(data) is not bytes or len(data) > 8 * 1024 * 1024:
             raise ValueError("invalid_provider_evidence")
         captured[kind] = data
 
     provider = provider_factory(sink)
     verify_effective_configuration(prepared, provider.identity)
-    if provider.identity.external_disclosure or getattr(provider, "external_disclosure", False):
-        raise AuthorizationError("live_inference_disabled")
+    live = provider.identity.external_disclosure
+    if getattr(provider, "external_disclosure", False) and not live:
+        raise AuthorizationError("inference_scope_mismatch")
+    if live:
+        inference_approval = check_inference_approval(prepared, configuration, inference_approval, allow_live=allow_live)
+        if provider.identity.endpoint != inference_approval.disclosure.endpoint:
+            raise AuthorizationError("endpoint_not_approved")
+        if not getattr(provider, "hard_deadline", False) or not callable(getattr(provider, "verify_model", None)):
+            raise AuthorizationError("bounded_transport_required")
+        if approval_state_dir is None:
+            raise ValueError("approval_state_directory_required")
+    elif inference_approval is not None:
+        raise AuthorizationError("inference_scope_mismatch")
     output_dir = Path(output_dir)
     output_dir.mkdir(mode=0o700)
     store = PrivateEvidence(output_dir / "private-evidence")
     manifest_sha = store.put(prepared.manifest.canonical_bytes())
     report_sha = store.put(prepared.report_bytes)
     store.put(artifact_bytes)
-    messages = (*prepared.request.messages, Message(role="system", content=_INSTRUCTIONS))
+    approval_sha = None
+    catalogue_sha = account_sha = None
+    if live:
+        approval_sha = store.put(canonical_json_bytes(inference_approval.model_dump(mode="json")))
+        claim_approval(inference_approval, approval_state_dir)
+    messages = initial_messages(prepared)
+    started_at = datetime.now(UTC)
     start = monotonic()
     deadline = start + prepared.max_wall_seconds
     steps: list[Step] = []
@@ -182,8 +237,31 @@ def run_experiment(prepared: PreparedReconstruction, artifact: Path, output_dir:
     status = "steps_exhausted"
     max_requests = min(configuration.max_steps, prepared.max_attempts)
     tool_calls = 0
+    reserved_spend = 0
+    if live:
+        try:
+            provider.verify_model(prepared.request.model, context_tokens=inference_approval.context_tokens,
+                                  input_price=inference_approval.input_microusd_per_million,
+                                  output_price=inference_approval.output_microusd_per_million,
+                                  timeout=min(inference_approval.request_timeout_seconds,
+                                              max(0.001, deadline - monotonic()),
+                                              max(0.001, (inference_approval.request_deadline - datetime.now(UTC)).total_seconds())))
+            catalogue_sha = store.put(captured["public_catalogue"])
+            account_sha = store.put(captured["account_models"])
+        except KeyboardInterrupt:
+            status = "interrupted"
+        except ProviderError as exc:
+            status = "model_verification_" + exc.category
+        except Exception:
+            status = "model_verification_failed"
     for index in range(1, max_requests + 1):
+        if live and (catalogue_sha is None or account_sha is None):
+            break
         remaining = deadline - monotonic()
+        if live:
+            remaining = min(remaining, inference_approval.request_timeout_seconds,
+                            (inference_approval.request_deadline - datetime.now(UTC)).total_seconds(),
+                            (inference_approval.disclosure.expires_at - datetime.now(UTC)).total_seconds())
         if remaining <= 0:
             status = "deadline_exhausted"
             break
@@ -191,11 +269,19 @@ def run_experiment(prepared: PreparedReconstruction, artifact: Path, output_dir:
         if context_size > configuration.max_context_bytes or len(messages) > 64:
             status = "context_budget_exhausted"
             break
-        reserve = prompt_token_bound(messages) + prepared.request.max_output_tokens
+        input_bound = inference_approval.context_tokens if live else prompt_token_bound(messages)
+        reserve = input_bound + prepared.request.max_output_tokens
         if charged + reserve > prepared.max_model_tokens:
             status = "token_budget_exhausted"
             break
-        request = InferenceRequest(**{**prepared.request.model_dump(), "messages": messages})
+        if live:
+            next_cost = worst_request_cost(inference_approval, prepared.request.max_output_tokens)
+            if reserved_spend + next_cost > inference_approval.max_spend_microusd:
+                status = "spend_budget_exhausted"
+                break
+            reserved_spend += next_cost
+        request = InferenceRequest(**{**prepared.request.model_dump(), "messages": messages,
+                                      "store": False if live else prepared.request.store})
         request_bytes = json.dumps(request.to_body(), ensure_ascii=False, allow_nan=False).encode("utf-8")
         request_sha = store.put(request_bytes)
         captured.clear()
@@ -205,12 +291,15 @@ def run_experiment(prepared: PreparedReconstruction, artifact: Path, output_dir:
         usage = None
         step_charge = reserve
         outcome = "provider_contract_violation"
+        submission = "uncertain"
         try:
             response = _checked_response(provider.complete(request, timeout=remaining))
+            submission = "completed"
         except KeyboardInterrupt:
             outcome = "interrupted"
         except ProviderError as exc:
             outcome = "provider_" + exc.category
+            submission = exc.submission
             if exc.submission == "not_submitted":
                 step_charge = 0
         except Exception:
@@ -230,7 +319,7 @@ def run_experiment(prepared: PreparedReconstruction, artifact: Path, output_dir:
                 outcome = "deadline_exhausted"
             elif response.usage_status == "invalid":
                 outcome = "provider_usage_invalid"
-            elif usage and (usage.prompt_tokens > prompt_token_bound(messages)
+            elif usage and (usage.prompt_tokens > input_bound
                             or usage.completion_tokens > request.max_output_tokens):
                 outcome = "provider_usage_overrun"
             elif response.model != request.model:
@@ -274,7 +363,8 @@ def run_experiment(prepared: PreparedReconstruction, artifact: Path, output_dir:
                           parsed_response_sha256=parsed_sha, reservation_tokens=reserve, charged_tokens=step_charge,
                           usage=usage, reported_model=None if response is None else response.model,
                           system_fingerprint=None if response is None else response.system_fingerprint,
-                          latency_seconds=elapsed, outcome=outcome, candidate_sha256=step_candidate))
+                          latency_seconds=elapsed, outcome=outcome, candidate_sha256=step_candidate,
+                          submission=submission))
         status = outcome
         if outcome not in ("inspect_target", "candidate_revision"):
             break  # answered/uncertain POSTs are never automatically retried
@@ -287,7 +377,24 @@ def run_experiment(prepared: PreparedReconstruction, artifact: Path, output_dir:
                               max_model_tokens=prepared.max_model_tokens, max_wall_seconds=prepared.max_wall_seconds,
                               max_requests=max_requests, steps=tuple(steps), charged_tokens=charged,
                               reported_tokens=sum(s.usage.total_tokens for s in steps if s.usage),
-                              candidate_sha256=candidate, generation_status=status)
+                              candidate_sha256=candidate, generation_status=status,
+                              **({"cost_microusd": None, "cost_basis": "provider_invoice_unknown",
+                                  "inference_approval_sha256": approval_sha, "catalogue_sha256": catalogue_sha,
+                                  "started_at": started_at, "finished_at": datetime.now(UTC),
+                                  "account_models_sha256": account_sha, "reserved_spend_microusd": reserved_spend,
+                                  "estimated_reported_cost_microusd": (sum(
+                                      (s.usage.prompt_tokens * inference_approval.input_microusd_per_million
+                                       + s.usage.completion_tokens * inference_approval.output_microusd_per_million
+                                       + 999_999) // 1_000_000 for s in steps) if all(s.usage for s in steps) else None),
+                                  "limitations": ("Live inference only; no candidate was compiled or executed.",
+                                      "Model identity and token usage are provider reports, not weight verification.",
+                                      "Full published context is reserved per request; invoice and uncertain usage remain unknown.",
+                                      "store=false requests no storage for model distillation; other retention follows the reviewed policy.",
+                                      "Private archive deletion is an operator duty at the approved retention deadline.")}
+                                 if live else {}))
+    if live:
+        for kind, data in captured.items():
+            store.put(data)
     publish_new_file(output_dir / "experiment.json", canonical_json_bytes(record.model_dump(mode="json")), MAX_RECORD_BYTES)
     return record
 
@@ -309,10 +416,30 @@ def verify_experiment(directory: Path) -> ExperimentRecord:
             or prepared.max_wall_seconds != record.max_wall_seconds
             or min(record.configuration.max_steps, prepared.max_attempts) != record.max_requests):
         raise ValueError("experiment_binding_mismatch")
+    if record.provider.external_disclosure:
+        approval = InferenceApproval.model_validate(parse_strict_json(store.get(record.inference_approval_sha256)))
+        check_inference_approval(prepared, record.configuration, approval, allow_live=True,
+                                 now=approval.disclosure.valid_from)
+        if record.provider.endpoint != approval.disclosure.endpoint or record.provider.provider != approval.disclosure.provider:
+            raise ValueError("approval_provider_mismatch")
+        if record.catalogue_sha256:
+            store.get(record.catalogue_sha256)
+        if record.account_models_sha256:
+            store.get(record.account_models_sha256)
+        expected_spend = worst_request_cost(approval, prepared.request.max_output_tokens) * len(record.steps)
+        if expected_spend != record.reserved_spend_microusd or expected_spend > approval.max_spend_microusd:
+            raise ValueError("spend_ledger_mismatch")
+    messages = initial_messages(prepared)
     for step in record.steps:
         request = parse_strict_json(store.get(step.request_sha256))
         if request["model"] != record.requested_model:
             raise ValueError("request_model_mismatch")
+        if record.provider.external_disclosure:
+            expected_request = InferenceRequest(**{**prepared.request.model_dump(), "messages": messages, "store": False})
+            if request != expected_request.to_body():
+                raise ValueError("live_conversation_mismatch")
+            if request.get("store") is not False or step.reservation_tokens != approval.context_tokens + request["max_tokens"]:
+                raise ValueError("live_request_policy_mismatch")
         if step.response_sha256:
             raw = store.get(step.response_sha256)
             if step.parsed_response_sha256:
@@ -323,6 +450,13 @@ def verify_experiment(directory: Path) -> ExperimentRecord:
                     raise ValueError("response_provenance_mismatch")
                 if (step.usage, step.reported_model, step.system_fingerprint) != (parsed.usage, parsed.model, parsed.system_fingerprint):
                     raise ValueError("step_accounting_mismatch")
+                if record.provider.external_disclosure:
+                    if step.outcome == "inspect_target":
+                        messages = (*messages, Message(role="assistant", content=parsed.content),
+                                    Message(role="user", content=prepared.request.messages[-1].content))
+                    elif step.outcome == "candidate_revision":
+                        messages = (*messages, Message(role="assistant", content=parsed.content),
+                                    Message(role="user", content="Revise using permitted evidence, or finish."))
                 if step.candidate_sha256:
                     if step.outcome == "candidate_revision":
                         proposed = Action.model_validate(parse_strict_json(parsed.content.encode("utf-8"))).source
@@ -354,7 +488,9 @@ class ControlledPairRecord(Strict):
 
 def run_controlled_pair(manifests: dict[str, TrialManifest], reports: dict[str, bytes], artifacts: dict[str, Path],
                         output_dir: Path, *, configuration: WorkflowConfig = WorkflowConfig(), order_seed: int = 0,
-                        provider_factory: ProviderFactory = offline_factory) -> ControlledPairRecord:
+                        provider_factory: ProviderFactory = offline_factory,
+                        inference_approvals: dict[str, InferenceApproval] | None = None,
+                        allow_live: bool = False, approval_state_dir: Path | None = None) -> ControlledPairRecord:
     """Existing pair validation controls matching objectives, access, model and budgets."""
     from .paired_trial import execution_order, prepare_pair
 
@@ -365,6 +501,14 @@ def run_controlled_pair(manifests: dict[str, TrialManifest], reports: dict[str, 
     for variant in ("baseline", "protected"):
         if hashlib.sha256(read_regular_file(artifacts[variant], 64 * 1024 * 1024)).hexdigest() != pair.prepared[variant].artifact_sha256:
             raise ValueError("artifact_digest_mismatch")
+    if inference_approvals is not None:
+        for variant in ("baseline", "protected"):
+            check_inference_approval(pair.prepared[variant], configuration, inference_approvals.get(variant), allow_live=allow_live)
+        limits = [(a.max_requests, a.max_total_tokens, a.max_spend_microusd, a.context_tokens,
+                   a.input_microusd_per_million, a.output_microusd_per_million, a.request_timeout_seconds)
+                  for a in (inference_approvals[v] for v in ("baseline", "protected"))]
+        if limits[0] != limits[1]:
+            raise AuthorizationError("inference_budget_not_approved")
     order = execution_order(order_seed, pair_id=pair.pair.baseline.pair_id,
                              baseline_trial_id=pair.pair.baseline.trial_id, protected_trial_id=pair.pair.protected.trial_id)
     output_dir.mkdir(mode=0o700)
@@ -382,7 +526,9 @@ def run_controlled_pair(manifests: dict[str, TrialManifest], reports: dict[str, 
 
     for variant in order:
         records[variant] = run_experiment(pair.prepared[variant], artifacts[variant], output_dir / variant,
-                                           configuration=configuration, provider_factory=fresh)
+                                           configuration=configuration, provider_factory=fresh,
+                                           inference_approval=None if inference_approvals is None else inference_approvals[variant],
+                                           allow_live=allow_live, approval_state_dir=approval_state_dir)
     def identities(record):
         return {(s.reported_model, s.system_fingerprint) for s in record.steps if s.parsed_response_sha256}
 

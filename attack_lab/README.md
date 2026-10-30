@@ -12,11 +12,16 @@ budgets, and paired orchestration through existing pair validation. This is not 
 direct REA integration. Generated candidates are **behaviorally unscored** while
 Core execution remains unavailable; no candidate executes in the demonstration.
 
-The real Nebius transport uses the documented Token Factory API and now also
-requires explicit transport opt-in. Live inference is still refused by the public
-Lab reconstruction/workflow entry points. No credits were spent. FakeOffline always
-identifies itself as scripted offline inference. Missing usage is unknown and
-conservatively reserved, never represented as zero model use. Offline cost is zero.
+Live inference is implemented through a separate, single-use operator approval and
+process-bounded Nebius transport. It does not grant compilation or execution rights;
+Core's execution authorization and dual gates are unchanged. See
+[the inference decision, exact commands and approval gate](docs/live-inference.md).
+The live path checks account model availability before disclosure, reserves the
+full published model context and worst-case spending, and archives exact responses
+privately. Live account calls have **not been run** and no credits were spent.
+FakeOffline remains explicitly scripted. Missing usage and actual live billing stay
+unknown; offline cost is zero. Historical phase descriptions below describe their
+original delivery; the linked live-inference document supersedes their live blockers.
 
 [Reproduction commands and integration handoff](docs/role-b-delivery.md) cover
 strict/offline test profiles, the actual baseline/Shield/Mirage demonstration,

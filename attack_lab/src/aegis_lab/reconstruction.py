@@ -7,13 +7,11 @@ the Phase 3A layer above ``aegis_lab.provider`` (transport),
 ``aegis_lab.disclosure`` (prompt policy and disclosure approval) and
 ``aegis_lab.evidence`` (checked evidence).
 
-Live inference is disabled. ``run_reconstruction`` refuses every provider that
-would disclose evidence externally, *after* checking the opt-in and the
-disclosure approval, with ``AuthorizationError("live_inference_disabled")``. A
-disclosure approval is necessary but never sufficient: execution must also be
-authorized through Core's two attack-lab gates, and that interface does not
-exist yet (it needs role A). Strict token budgets are also not enforceable for a
-live model, because no verified tokenizer bound is available.
+The legacy ``run_reconstruction`` API remains offline and accepts disclosure
+review only. ``run_live_reconstruction`` and CLI ``run-live`` use the separate
+single-use inference approval and the privately archived controlled-experiment
+format. They never compile or execute candidate code. Core's two execution gates
+are unchanged and grant no inference permission by themselves.
 
 What this does **not** do:
 
@@ -483,7 +481,7 @@ class PreparedReconstruction:
             },
             "notes": [
                 "No disclosure has occurred; this is local request metadata only.",
-                "Live inference is disabled pending Core execution-authorization integration.",
+                "Live inference requires a separate single-use InferenceApproval and bounded transport.",
                 "This record does not authorize execution; Core's two attack-lab gates still apply.",
             ],
         }
@@ -741,11 +739,6 @@ def verify_effective_configuration(prepared: PreparedReconstruction, identity: P
 
 # --- Live-inference gate --------------------------------------------------------------------------
 
-LIVE_INFERENCE_BLOCKERS = (
-    "core_execution_authorization_unavailable",
-    "token_bound_unverified",
-    "transport_deadline_not_enforced",
-)
 
 
 def authorize_live_run(
@@ -756,12 +749,10 @@ def authorize_live_run(
     allow_live: bool,
     now: datetime | None = None,
 ) -> None:
-    """Check every live precondition and then refuse: live inference is disabled.
+    """Validate legacy disclosure review, then require the dedicated inference API.
 
-    Always raises ``AuthorizationError``. Opt-in and disclosure-approval problems
-    are reported first (so an operator can validate an approval); a valid approval
-    still ends in ``live_inference_disabled`` because Core execution authorization
-    is not integrated and no verified token bound exists.
+    A disclosure review alone is insufficient. Use ``run_live_reconstruction``
+    with an InferenceApproval for the bounded inference-only operational path.
     """
     if not identity.external_disclosure:
         raise AssertionError("authorize_live_run is only for external providers")
@@ -780,7 +771,8 @@ def authorize_live_run(
         findings=dict(prepared.findings),
         now=now,
     )
-    raise AuthorizationError("live_inference_disabled", LIVE_INFERENCE_BLOCKERS)
+    # Disclosure review alone does not grant inference or any execution rights.
+    raise AuthorizationError("inference_approval_required")
 
 
 # --- Candidate envelope ---------------------------------------------------------------------------
@@ -1843,6 +1835,28 @@ def run_reconstruction(
     return _execute(prepared, provider, approval=None, monotonic=monotonic, sleep=sleep)
 
 
+
+def run_live_reconstruction(prepared, artifact, output_dir, *, inference_approval, approval_state_dir,
+                            allow_live=False, configuration=None, provider_factory=None):
+    """Inference-only API returning a private controlled-experiment record.
+
+    Generated code stays unexecuted. Unlike the legacy offline v2 record, this
+    format archives exact provider bodies, context reservations and spending.
+    """
+    from .experiment import WorkflowConfig, run_experiment
+    from .inference import check_inference_approval
+    from .bounded_provider import BoundedNebiusProvider
+
+    if configuration is None:
+        configuration = WorkflowConfig(max_steps=1)
+    check_inference_approval(prepared, configuration, inference_approval, allow_live=allow_live)
+    if provider_factory is None:
+        provider_factory = lambda sink: BoundedNebiusProvider.from_environment(allow_live=True, evidence_sink=sink)
+    return run_experiment(prepared, artifact, output_dir, configuration=configuration,
+                          provider_factory=provider_factory, inference_approval=inference_approval,
+                          approval_state_dir=approval_state_dir, allow_live=allow_live)
+
+
 # --- Command-line interface -----------------------------------------------------------------------
 # Output follows the diagnostics policy: safe field paths and fixed codes only. No rejected
 # values, file contents, paths, URLs or provider messages reach the terminal.
@@ -1919,7 +1933,7 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901 - one dispatcher w
     for name, help_text in (
         ("prepare", "bind evidence and print safe request metadata (no disclosure)"),
         ("run-offline", "run the offline fake provider end to end (no disclosure, no token)"),
-        ("run-live", "validate a disclosure approval; live inference is disabled and always refused"),
+        ("run-live", "run privately archived inference with separate disclosure and inference approvals"),
     ):
         p = sub.add_parser(name, help=help_text)
         p.add_argument("manifest", type=Path)
@@ -1945,8 +1959,12 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901 - one dispatcher w
             p.add_argument("--approval", type=Path, required=True, help="external-disclosure approval JSON")
             p.add_argument("--endpoint", default=NEBIUS_BASE_URL, help="provider base URL")
             p.add_argument("--provider-name", default="Nebius")
+            p.add_argument("--inference-approval", type=Path)
+            p.add_argument("--artifact", type=Path)
+            p.add_argument("--output-dir", type=Path)
+            p.add_argument("--steps", type=int, default=1)
             p.add_argument("--i-accept-external-disclosure", action="store_true",
-                           help="explicit opt-in to external disclosure (live inference is still disabled)")
+                           help="explicit opt-in; separate inference approval is also required")
     args = parser.parse_args(argv)
 
     def fail(lines: list[str], code: int = EXIT_INVALID) -> int:
@@ -2029,6 +2047,22 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901 - one dispatcher w
                     return fail([f"approval: {exc.category}"])
                 except ValidationError as exc:
                     return fail([f"approval: {i}" for i in validation_issues(exc, approval_fields)])
+            if args.inference_approval is not None:
+                if not args.i_accept_external_disclosure:
+                    return fail(["authorization: live_opt_in_required"], EXIT_AUTHORIZATION_BLOCKED)
+                if args.artifact is None or args.output_dir is None:
+                    return fail(["input: artifact_and_output_dir_required"])
+                from .live import execute_live
+                from .inference import load_approval
+                from .experiment import WorkflowConfig
+                grant = load_approval(args.inference_approval)
+                if approval != grant.disclosure or identity.endpoint != grant.disclosure.endpoint:
+                    return fail(["authorization: inference_scope_mismatch"], EXIT_AUTHORIZATION_BLOCKED)
+                result = execute_live(prepared, args.artifact, args.output_dir, grant,
+                                      args.inference_approval.parent / ".inference-uses",
+                                      configuration=WorkflowConfig(max_steps=args.steps))
+                print(result.generation_status)
+                return 0 if result.generation_status == "generated_but_behaviorally_unscored" else 1
             try:
                 authorize_live_run(prepared, identity, approval, allow_live=args.i_accept_external_disclosure)
             except AuthorizationError as exc:
