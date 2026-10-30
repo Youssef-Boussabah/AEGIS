@@ -9,13 +9,16 @@ with a scripted executor. No VM starts and nothing is compiled or executed.
 from __future__ import annotations
 
 import hashlib
+import errno
 import fcntl
+import importlib.util
 import itertools
 import json
 import os
 import shutil
 import socket
 import tempfile
+import sys
 import threading
 import time
 from pathlib import Path
@@ -23,6 +26,7 @@ from pathlib import Path
 import pytest
 
 from aegis_core import lab_guest_agent as agent
+from aegis_core import lab_firecracker as fc
 from aegis_core import lab_vm_protocol as proto
 from aegis_core.config import FirecrackerConfig, config_from_mapping
 from aegis_core.errors import AegisError
@@ -790,8 +794,8 @@ def test_launch_uses_sealed_bytes_even_when_original_paths_are_replaced(env):
                     a for a in argv if a.startswith(f"/proc/{os.getpid()}/fd/")))
                 assert source.read_bytes() == original[name]
                 fd = int(source.name)
-                seals = fcntl.fcntl(fd, fcntl.F_GET_SEALS)
-                assert seals & fcntl.F_SEAL_WRITE and seals & fcntl.F_SEAL_GROW and seals & fcntl.F_SEAL_SHRINK
+                seals = fcntl.fcntl(fd, fc.F_GET_SEALS)
+                assert seals & fc.REQUIRED_FILE_SEALS == fc.REQUIRED_FILE_SEALS
                 with pytest.raises(OSError):
                     os.pwrite(fd, b"tampered", 0)
             return super().start(argv, environment)
@@ -799,6 +803,120 @@ def test_launch_uses_sealed_bytes_even_when_original_paths_are_replaced(env):
     rt, _ = preflighted(env, RacingLauncher(env, cfg), cfg)
     assert rt.execute(execute_job()).status == "exited"
     assert_clean(env, rt)
+
+
+SEAL_NAMES = ("F_ADD_SEALS", "F_GET_SEALS", "F_SEAL_SEAL", "F_SEAL_SHRINK", "F_SEAL_GROW", "F_SEAL_WRITE")
+
+
+@pytest.mark.parametrize("missing", [(name,) for name in SEAL_NAMES] + [SEAL_NAMES])
+def test_real_sealing_without_python_fcntl_constants(tmp_path, monkeypatch, missing):
+    # Load a separate module after removing the attributes so import-time
+    # fallback resolution is exercised without reloading the runtime under test.
+    for name in missing:
+        monkeypatch.delattr(fcntl, name, raising=False)
+    name = "aegis_core._lab_firecracker_portability_test"
+    spec = importlib.util.spec_from_file_location(name, fc.__file__)
+    portable = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, name, portable)
+    spec.loader.exec_module(portable)
+    assert [getattr(portable, key) for key in SEAL_NAMES] == [1033, 1034, 1, 2, 4, 8]
+    path = tmp_path / "trusted-asset"
+    data = b"trusted fixture bytes, never executed"
+    path.write_bytes(data)
+    identity = portable.verify_pinned(path, sha(data), name="fixture", uid=os.getuid())
+    fd = portable.sealed_asset(identity)
+    try:
+        assert os.pread(fd, len(data), 0) == data
+        assert fcntl.fcntl(fd, portable.F_GET_SEALS) & portable.REQUIRED_FILE_SEALS == portable.REQUIRED_FILE_SEALS
+        for mutate in (lambda: os.pwrite(fd, b"changed", 0),
+                       lambda: os.ftruncate(fd, len(data) - 1),
+                       lambda: os.ftruncate(fd, len(data) + 1),
+                       lambda: fcntl.fcntl(fd, portable.F_ADD_SEALS, portable.F_SEAL_WRITE)):
+            with pytest.raises(OSError) as info:
+                mutate()
+            assert info.value.errno == errno.EPERM
+        assert os.pread(fd, len(data), 0) == data
+    finally:
+        os.close(fd)
+
+
+@pytest.mark.parametrize("fault", ["add_error", "get_error", "F_SEAL_SEAL", "F_SEAL_SHRINK", "F_SEAL_GROW", "F_SEAL_WRITE"])
+def test_sealing_errors_and_incomplete_readback_close_the_memfd(tmp_path, monkeypatch, fault):
+    path = tmp_path / "trusted-asset"
+    path.write_bytes(b"trusted fixture")
+    identity = fc.verify_pinned(path, sha(path.read_bytes()), name="fixture", uid=os.getuid())
+    real_fcntl = fcntl.fcntl
+    observed = []
+
+    def faulty(fd, command, *args):
+        if command == fc.F_ADD_SEALS:
+            observed.append(fd)
+            if fault == "add_error":
+                raise OSError(errno.EINVAL, "sealing unavailable")
+        if command == fc.F_GET_SEALS:
+            if fault == "get_error":
+                raise OSError(errno.EINVAL, "seal readback unavailable")
+            return real_fcntl(fd, command, *args) & ~getattr(fc, fault)
+        return real_fcntl(fd, command, *args)
+
+    monkeypatch.setattr(fcntl, "fcntl", faulty)
+    with pytest.raises((OSError, fc.PinError)) as info:
+        fc.sealed_asset(identity)
+    if fault.endswith("error"):
+        assert isinstance(info.value, OSError)
+    else:
+        assert info.value.blocker == "pinned_asset_sealing_unverified"
+    assert len(observed) == 1
+    with pytest.raises(OSError) as closed:
+        os.fstat(observed[0])
+    assert closed.value.errno == errno.EBADF
+
+
+@pytest.mark.parametrize("fault", ["add_error", "get_error", "incomplete"])
+def test_preflight_refuses_sealing_failure_and_releases_prior_snapshots(env, monkeypatch, fault):
+    cfg = env.cfg()
+    launcher = FakeLauncher(env, cfg)
+    rt = runtime_for(env, launcher, cfg)
+    real_fcntl = fcntl.fcntl
+    snapshots = []
+
+    def faulty(fd, command, *args):
+        if command == fc.F_ADD_SEALS:
+            snapshots.append(fd)
+            if len(snapshots) == 2 and fault == "add_error":
+                raise OSError(errno.EINVAL, "sealing unavailable")
+        if command == fc.F_GET_SEALS and len(snapshots) == 2:
+            if fault == "get_error":
+                raise OSError(errno.EINVAL, "seal readback unavailable")
+            return real_fcntl(fd, command, *args) & ~fc.F_SEAL_WRITE
+        return real_fcntl(fd, command, *args)
+
+    monkeypatch.setattr(fcntl, "fcntl", faulty)
+    with pytest.raises(AegisError) as info:
+        rt.preflight(PreflightRequest(compile_limits=None, execute_limits=elimits()))
+    expected = "pinned_asset_sealing_unverified" if fault == "incomplete" else "pinned_asset_snapshot_failed"
+    assert _blocker(info) == [expected]
+    assert not rt._asset_fds and not rt._ready and not launcher.starts
+    assert len(snapshots) == 2
+    for fd in snapshots:
+        with pytest.raises(OSError) as closed:
+            os.fstat(fd)
+        assert closed.value.errno == errno.EBADF
+
+
+def test_linux_seal_fallback_is_never_used_on_other_platforms(tmp_path, monkeypatch):
+    path = tmp_path / "trusted-asset"
+    path.write_bytes(b"trusted fixture")
+    identity = fc.verify_pinned(path, sha(path.read_bytes()), name="fixture", uid=os.getuid())
+    monkeypatch.setattr(sys, "platform", "darwin")
+
+    def unexpected(*args):
+        pytest.fail("must refuse before creating a memfd on another platform")
+
+    monkeypatch.setattr(os, "memfd_create", unexpected)
+    with pytest.raises(fc.PinError) as info:
+        fc.sealed_asset(identity)
+    assert info.value.blocker == "pinned_asset_sealing_requires_linux"
 
 
 def test_snapshot_rejects_in_place_mutation_and_preserves_original_bytes(env):

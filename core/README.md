@@ -178,6 +178,13 @@ Failed VM cleanup retains process/scope tracking and state for retry, and blocks
 further runs. Host OOM and deadline observations take precedence over guest
 results. Before launch, pinned host assets are copied, hashed and sealed in
 anonymous memory files; launches use held descriptors through `/proc/<Core pid>/fd`.
+On Linux, Python builds that omit the `fcntl` sealing constants use the stable
+kernel UAPI values (`F_ADD_SEALS=1033`, `F_GET_SEALS=1034`; seal/shrink/grow/write
+bits `1/2/4/8`). Native Python definitions take precedence. Every snapshot must
+read back all four seals with `F_GET_SEALS`; failed operations or incomplete
+readback close the descriptor and refuse preflight. No fallback runs on other
+platforms. The UAPI definitions are in Linux's `include/uapi/linux/fcntl.h` and
+`include/uapi/asm-generic/fcntl.h`.
 These copies use up to 2 GiB of additional host memory outside VM scopes and
 must be included in operator capacity planning. No real VM has validated this
 launch path. See [the review and results](../docs/CORE_EXECUTION_REVIEW.md).

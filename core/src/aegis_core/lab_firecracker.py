@@ -34,6 +34,7 @@ import signal
 import socket
 import stat
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -78,6 +79,19 @@ MAX_VM_MEMORY_MIB = 32 * 1024
 CONNECT_RETRY_SECONDS = 0.05
 MAX_UNIX_PATH = 107
 MAX_PINNED_ASSET_BYTES = 2 * 1024 * MIB
+
+# Linux UAPI: include/uapi/linux/fcntl.h and asm-generic/fcntl.h (base 1024).
+# Some Python builds omit these names despite kernel support. Prefer native
+# definitions; the numeric fallbacks are used only by Linux-guarded sealed_asset.
+# https://github.com/torvalds/linux/blob/v6.1/include/uapi/linux/fcntl.h
+# https://github.com/torvalds/linux/blob/v6.1/include/uapi/asm-generic/fcntl.h
+F_ADD_SEALS = getattr(fcntl, "F_ADD_SEALS", 1033)  # 1024 + 9
+F_GET_SEALS = getattr(fcntl, "F_GET_SEALS", 1034)  # 1024 + 10
+F_SEAL_SEAL = getattr(fcntl, "F_SEAL_SEAL", 0x0001)
+F_SEAL_SHRINK = getattr(fcntl, "F_SEAL_SHRINK", 0x0002)
+F_SEAL_GROW = getattr(fcntl, "F_SEAL_GROW", 0x0004)
+F_SEAL_WRITE = getattr(fcntl, "F_SEAL_WRITE", 0x0008)
+REQUIRED_FILE_SEALS = F_SEAL_SEAL | F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE
 
 
 # ------------------------------------------------------------ pinned files
@@ -155,6 +169,8 @@ def sealed_asset(identity: FileIdentity) -> int:
     copy prevents both path replacement and writes through another descriptor.
     Its /proc/<Core pid>/fd alias is held open until verified VM teardown.
     """
+    if sys.platform != "linux":
+        raise PinError("pinned_asset_sealing_requires_linux")
     fd = os.memfd_create("aegis-pinned-asset", os.MFD_CLOEXEC | os.MFD_ALLOW_SEALING)
     source = None
     try:
@@ -175,8 +191,9 @@ def sealed_asset(identity: FileIdentity) -> int:
         if digest.hexdigest() != identity.sha256:
             raise PinError("pinned_asset_changed")
         os.fchmod(fd, 0o500 if info.st_mode & 0o111 else 0o400)
-        fcntl.fcntl(fd, fcntl.F_ADD_SEALS,
-                    fcntl.F_SEAL_WRITE | fcntl.F_SEAL_GROW | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_SEAL)
+        fcntl.fcntl(fd, F_ADD_SEALS, REQUIRED_FILE_SEALS)
+        if fcntl.fcntl(fd, F_GET_SEALS) & REQUIRED_FILE_SEALS != REQUIRED_FILE_SEALS:
+            raise PinError("pinned_asset_sealing_unverified")
         return fd
     except BaseException:
         os.close(fd)
