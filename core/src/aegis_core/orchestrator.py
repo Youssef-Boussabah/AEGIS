@@ -13,6 +13,7 @@ from typing import Any
 from .adapter import AdapterInvocation, AdapterRequest, SubprocessAdapterRunner
 from .config import AdapterSpec, AegisConfig
 from .errors import AegisError
+from .lab_authorization import check_attack_lab_gates
 from .models import (
     Artifact,
     ArtifactRole,
@@ -76,25 +77,8 @@ class Orchestrator:
         return spec
 
     def _check_attack_lab_authorization(self, policy: ProtectionPolicy) -> None:
-        if not self.config.attack_lab.enabled:
-            raise AegisError(
-                ErrorCode.AUTHORIZATION_REQUIRED,
-                "Attack-lab tasks are disabled in this AEGIS configuration "
-                "([attack_lab] enabled = false).",
-            )
-        auth = policy.authorization
-        if auth is None:
-            raise AegisError(
-                ErrorCode.AUTHORIZATION_REQUIRED,
-                "Attack-lab tasks require an explicit authorization record "
-                "(authorized_by, reference, scope).",
-            )
-        if auth.expires_at is not None and auth.expires_at <= self.clock():
-            raise AegisError(
-                ErrorCode.AUTHORIZATION_REQUIRED,
-                "The attack-lab authorization has expired.",
-                {"expires_at": auth.expires_at.isoformat()},
-            )
+        # One definition of the two gates, shared with candidate execution.
+        check_attack_lab_gates(self.config, policy.authorization, self.clock())
 
     # ----------------------------------------------------------------- submit
 

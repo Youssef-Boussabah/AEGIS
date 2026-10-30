@@ -1,0 +1,14 @@
+{
+  "comment": "AEGIS candidate guest. Pin 'snapshot' (snapshot.debian.org timestamp) before fetching.",
+  "mirror": "https://snapshot.debian.org/archive/debian",
+  "snapshot": "PIN-ME-YYYYMMDDTHHMMSSZ",
+  "suite": "trixie",
+  "architecture": "amd64",
+  "source_date_epoch": 1761696000,
+  "packages": ["gcc", "libc6-dev", "python3"],
+  "exclude": ["dpkg", "debconf", "perl-base", "dash", "bash", "base-passwd", "base-files",
+              "init-system-helpers", "debianutils", "sensible-utils", "libdebconfclient0",
+              "install-info", "usr-is-merged", "usrmerge", "util-linux", "mount", "login",
+              "passwd", "sudo", "openssh-client", "iproute2", "netbase", "ca-certificates"],
+  "symlinks": {}
+}

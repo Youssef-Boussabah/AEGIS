@@ -21,6 +21,7 @@ def write_test_config(
     directory: Path,
     *,
     attack_lab_enabled: bool = False,
+    candidate_execution_enabled: bool = False,
     timeout_seconds: int = 30,
     tasks: tuple[str, ...] = ("protect", "attack_lab"),
     max_input_bytes: int = 1024 * 1024,
@@ -35,6 +36,9 @@ max_input_bytes = {max_input_bytes}
 
 [attack_lab]
 enabled = {"true" if attack_lab_enabled else "false"}
+
+[attack_lab.candidate_execution]
+enabled = {"true" if candidate_execution_enabled else "false"}
 
 [adapters.{FAKE_BACKEND}]
 command = [{command}]

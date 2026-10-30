@@ -20,7 +20,7 @@
 
 | Workstream | Issue | State |
 |---|---|---|
-| A Core, Shield, Integration | #9 | Scope defined; CI, governance, final-binary retention and Shield v2 remain work |
+| A Core, Shield, Integration | #9 | Phase 4 (branch `feat/core-lab-execution`, unmerged): Core grants, sessions, ledger, Firecracker backend and containment tooling implemented and fixture-tested; isolation **not real-VM-validated or approved**. [ADR 0004](adr/0004-isolated-candidate-execution.md) and its Firecracker amendment remain **proposed**. Complete bundle binding requires a grant-issuer migration. Fresh ImageLab builds retain optimized machine-code differences; see the execution review below |
 | B Adversarial Lab and Mirage | #10 | Scope defined; no real reconstruction backend yet |
 | C Frontend and UI | #11 | Scope defined; implementation status not established |
 | D Signature and Sentinel | #12 | Implemented; offline signed provenance, Sentinel policies, watermark research (36 tests passed) |
@@ -32,6 +32,19 @@
 - The four-role revision aligns root guidance, the two PDFs, contribution instructions and issues #9–#12. The feature branches must receive the accepted revision before engineering begins; follow CONTRIBUTING.md without resetting branches containing work.
 - Shared API enhancements for artifact retrieval/listing require deliberate review and safe path handling.
 - A genuine reconstruction comparison is needed before advertising effective reverse-engineering resistance.
+- Phase 4 candidate execution is blocked on approved pinned candidate assets, C0/F1–F5/V1–V11 validation and ADR 0004 approval. The implemented Firecracker path needs no `runsc`; gVisor remains unimplemented. Core refuses configured execution (`SANDBOX_UNAVAILABLE`).
+
+## Core execution review (2026-10-29; unmerged working tree)
+
+The Firecracker backend and containment tooling are implemented and fixture-tested,
+but remain unapproved and have no real-VM containment result. Complete bundle
+binding, live guest CPU supervision, pipe draining, retryable cleanup, immutable
+launch asset copies and host-observation precedence are covered by regressions.
+Normal execution remains disabled (`ADR_0004_ACCEPTED = False`). Multi-file grant
+issuers need a reviewed migration; Role B code was not modified.
+Fresh Shield/ImageLab builds retain changed optimized kernel code and pass their
+native tests. Exact Python/native results, benchmark conditions, files changed
+and operator-only validation commands are in [CORE_EXECUTION_REVIEW.md](CORE_EXECUTION_REVIEW.md).
 
 ## Keeping this record trustworthy
 

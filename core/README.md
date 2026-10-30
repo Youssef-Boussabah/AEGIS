@@ -116,7 +116,7 @@ Errors are `{"code", "message", "details"}` (`ErrorInfo`) with a stable `code`:
 | `CONFIG_NOT_FOUND`, `CONFIG_INVALID`, `CONFIG_EXISTS` | configuration problems | – | 3 |
 | `UNSUPPORTED_BACKEND` | no adapter registered for the backend | 400 | 4 |
 | `UNSUPPORTED_TASK` | adapter does not declare the task | 400 | 4 |
-| `AUTHORIZATION_REQUIRED` | attack-lab disabled, or authorization missing/expired | 403 | 5 |
+| `AUTHORIZATION_REQUIRED` | attack-lab disabled, authorization missing/expired, or a candidate execution refusal; `details.reason` names the cause | 403 | 5 |
 | `INPUT_NOT_FOUND` / `INPUT_TOO_LARGE` | input problems | 400 / 413 | 6 / 2 |
 | `JOB_NOT_FOUND` | unknown job id | 404 | 6 |
 | `JOB_CONFLICT`, `REPORT_NOT_READY` | job is not in the right state | 409 | 7 |
@@ -125,6 +125,8 @@ Errors are `{"code", "message", "details"}` (`ErrorInfo`) with a stable `code`:
 | `ADAPTER_FAILED` | nonzero exit or `status: "failed"` | job fails | 1 |
 | `ADAPTER_INVALID_OUTPUT` | bad JSON, missing/escaping outputs, success with no outputs | job fails | 1 |
 | `ARTIFACT_INTEGRITY_ERROR` | input hash changed during the run | job fails | 1 |
+| `SANDBOX_UNAVAILABLE` | candidate execution: no approved, verified isolation runtime (`details.blockers`); nothing was started | not exposed (500) | not exposed (70) |
+| `SANDBOX_FAILED` | candidate execution: runtime start, enforcement, protocol or cleanup failure (`details.failure`); never a candidate outcome | not exposed (500) | not exposed (70) |
 | `STORAGE_ERROR`, `INTERNAL_ERROR` | local I/O or unexpected errors | 500 | 3 / 70 |
 
 Requests that can be rejected up front (unsupported backend/task, missing
@@ -141,6 +143,44 @@ Attack-lab tasks need **both**:
 
 The authorization is checked when the job is submitted and again just before it
 runs. It is recorded as evidence in the report and passed to the adapter.
+`enabled` must be a TOML boolean; strings such as `"yes"` are rejected.
+Refusals carry `details.reason` (`attack_lab_disabled`,
+`authorization_missing`, `authorization_expired`).
+
+### Untrusted candidate execution (Phase 4)
+
+Compiling or running a Lab-generated candidate needs both gates above **plus**
+`[attack_lab.candidate_execution] enabled = true` (off by default) and a
+`CandidateExecutionGrant` that binds the exact candidates, flags, limits,
+budgets and validity window. Grant limits may not exceed the operator ceilings
+`compile_ceiling` / `execute_ceiling` in the same section. Everything is
+re-checked before every stage. Budgets are per grant across all sessions and
+processes, kept in `<store>/lab-grants/<grant_id>/ledger.json`. `compile`
+requires an explicit `translation_units` list; other submitted files are only
+staged for `#include`. Multi-file grants must bind all named source and support
+files and the ordered units using `compilation_bundle_sha256`; missing bindings
+permit only `candidate.c` compiled alone. Existing single-file grant identities
+and persistent ledger usage are preserved. The Firecracker backend (`runtime = "firecracker"`) is
+implemented but refused until containment is verified; see
+[guest/README.md](guest/README.md) for the guest image and the proposed checks.
+
+**The isolation backend is implemented but unvalidated and unapproved.**
+`aegis_core.lab_execution.open_session` with the configured runtime therefore
+fails with `SANDBOX_UNAVAILABLE` and nothing is compiled or run. The
+design awaiting approval is [ADR 0004](../docs/adr/0004-isolated-candidate-execution.md);
+the Lab integration contract is [docs/lab-execution-contract.md](docs/lab-execution-contract.md).
+`python -m aegis_core.lab_host` prints the host's static prerequisites; it
+never claims that limits are enforced.
+
+Guest supervision drains pipes after the leader exits and polls aggregate
+cgroup CPU usage during execution (10 ms polling, with possible overshoot).
+Failed VM cleanup retains process/scope tracking and state for retry, and blocks
+further runs. Host OOM and deadline observations take precedence over guest
+results. Before launch, pinned host assets are copied, hashed and sealed in
+anonymous memory files; launches use held descriptors through `/proc/<Core pid>/fd`.
+These copies use up to 2 GiB of additional host memory outside VM scopes and
+must be included in operator capacity planning. No real VM has validated this
+launch path. See [the review and results](../docs/CORE_EXECUTION_REVIEW.md).
 
 ## Security notes
 

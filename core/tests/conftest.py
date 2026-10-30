@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ from aegis_core.config import load_config
 from aegis_core.models import AttackLabAuthorization, ProtectionPolicy, TaskKind
 from aegis_core.orchestrator import Orchestrator
 from aegis_core.testing import FAKE_BACKEND, write_test_config
+from lab_fixtures import grant_data
 
 
 @pytest.fixture
@@ -50,5 +52,33 @@ def attack_policy(policy):
             ),
         )
         return policy(mode, task=TaskKind.ATTACK_LAB, authorization=auth, **kwargs)
+
+    return factory
+
+
+# ------------------------------------------------------- candidate execution
+
+@pytest.fixture
+def make_grant():
+    from aegis_core.lab_authorization import CandidateExecutionGrant
+
+    def factory(**overrides) -> CandidateExecutionGrant:
+        return CandidateExecutionGrant.model_validate_json(json.dumps(grant_data(**overrides)))
+
+    return factory
+
+
+@pytest.fixture
+def lab_config(tmp_path: Path):
+    """Config with all three operator-side gates open (attack lab + candidate execution)."""
+
+    def factory(*, attack_lab: bool = True, candidate_execution: bool = True):
+        return load_config(
+            write_test_config(
+                tmp_path,
+                attack_lab_enabled=attack_lab,
+                candidate_execution_enabled=candidate_execution,
+            )
+        )
 
     return factory

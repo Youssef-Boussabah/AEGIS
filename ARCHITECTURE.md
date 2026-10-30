@@ -25,7 +25,17 @@ Issue #7 separately coordinates cross-ecosystem tests using PhotoCraft, the reVC
                                                      ├─ storage.py       local artifact store
                                                      ├─ orchestrator.py  job lifecycle + reports
                                                      ├─ adapter.py       subprocess runner
-                                                     └─ health.py        health check
+                                                     ├─ health.py        health check
+                                                     ├─ lab_authorization.py / lab_limits.py
+                                                     │                   attack-lab gates, execution grants
+                                                     ├─ lab_execution.py candidate execution session
+                                                     ├─ lab_ledger.py    per-grant usage ledger
+                                                     ├─ lab_firecracker.py Firecracker backend (host side)
+                                                     ├─ lab_containment.py F1-F5/V1-V11 driver and report
+                                                     ├─ lab_vm_protocol.py / lab_guest_agent.py
+                                                     │                   vsock protocol; guest agent (in VM)
+                                                     │                   (no isolation runtime yet: refuses)
+                                                     └─ lab_host.py      read-only host prerequisite probe
                                                             │
                                aegis.adapter.v1             │ argv array, shell=False,
                                (request.json → stdout JSON) ▼ timeout, minimal env
@@ -89,6 +99,8 @@ Every model sets `extra="forbid"`, so unknown fields are rejected.
 | `AttackEvaluation` | one attack's `outcome` (`resisted` / `bypassed` / `inconclusive` / `error`) against a target artifact hash; `source` is `adapter` |
 | `ProtectionReport` | written for **every** terminal job, failed ones included; `summary` plus a `limitations` list stating what the report does not prove |
 | `ErrorInfo` | `code` (`ErrorCode` enum), `message`, `details` |
+| `CandidateExecutionGrant` | `aegis.core.candidate-execution-grant.v1`: embeds an `AttackLabAuthorization` and binds permitted target digests, candidates (id, source digest, target), stages, exact compiler flags, per-stage `SandboxLimits`/`CompileLimits`, run budgets, Lab-declared digests and a ≤ 7-day window (§7a) |
+| `CandidateExecutionRecord` | `aegis.core.candidate-execution-record.v1`: one compile or execute invocation; Core-computed digests, limits, budgets, the runtime attestation and the runtime's observation |
 
 Invariants enforced by validators:
 
@@ -163,7 +175,8 @@ protection and must never be registered as a real backend.
 
 All JSON writes are atomic (temp file, `fsync`, `os.replace`). The store root
 defaults to `.aegis/` next to `aegis.toml`. There is no database, queue or
-object storage.
+object storage. Candidate execution adds `<store>/lab-grants/<grant_id>/`
+(`ledger.json` plus a `flock` lock file, 0700/0600): grant-wide usage, see §7a.
 
 ## 6. Security requirements
 
@@ -183,7 +196,14 @@ change:
 - **Attack-lab tasks need two independent gates:**
   `[attack_lab] enabled = true` in config (off by default), **and** an
   `AttackLabAuthorization` on the request. Both are checked at submit time and
-  again at run time, and expired authorizations are rejected.
+  again at run time, and expired authorizations are rejected. One function,
+  `aegis_core.lab_authorization.check_attack_lab_gates`, implements them for
+  jobs and for candidate execution. The config gate accepts only a TOML boolean.
+- **Untrusted candidate code needs a third gate and a grant:**
+  `[attack_lab.candidate_execution] enabled = true` (off by default, strict
+  boolean) plus a `CandidateExecutionGrant`, all re-checked before every stage,
+  **and** an approved isolation runtime that passes its preflight. The implemented
+  Firecracker backend has not passed real containment validation and is refused (§7a).
 - **API exposure.** The API binds to `127.0.0.1` by default. `aegis-api`
   refuses a non-loopback host unless `AEGIS_API_TOKEN` is set; when it is set,
   `/v1/*` requires the bearer token (compared in constant time). Validation
@@ -224,7 +244,48 @@ expansions and verified IR, with **no established security property**. Private
 partial files may remain after a hard timeout or failed publication; failed jobs
 never register them as outputs.
 
-Lab tools do not implement or bypass Core's two attack-lab authorization gates. Linking Lab authorization references to `AttackLabAuthorization` remains a coordinated future integration task.
+Lab tools do not implement or bypass Core's two attack-lab authorization gates. Core's side of linking Lab execution to `AttackLabAuthorization` is the candidate execution grant (§7a); the Lab side is pending Role B.
+
+## 7a. Untrusted candidate execution (Phase 4; ADR 0004 **proposed**)
+
+[ADR 0004](docs/adr/0004-isolated-candidate-execution.md) proposes gVisor `runsc` (systrap, rootless) inside a transient systemd user scope for every compilation and every test case. Its proposed Amendment 1 reviews a Firecracker microVM backend: acceptable only inside the same scope plus a rootless jail, with seccomp, no API socket, no network device, read-only drives and a bounded vsock protocol; Core's session and grant interfaces would not change. It covers trust boundaries, filesystem, network, capabilities, enforced limits, containment, cleanup and fail-closed semantics. The Role B integration contract is [core/docs/lab-execution-contract.md](core/docs/lab-execution-contract.md).
+
+| Concern | Implemented in Core now |
+| --- | --- |
+| Authorization | gates 1–3 plus a `CandidateExecutionGrant`; grant limits must not exceed operator ceilings (`[attack_lab.candidate_execution] compile_ceiling/execute_ceiling`) |
+| Binding | Core hashes candidate bytes against the grant; multi-file grants additionally bind every named source/support file and the ordered translation units with `compilation_bundle_sha256`. Missing bundle digests permit only `candidate.c` alone. Exact flags, requested limits ≤ grant, and session/candidate binary binding remain enforced |
+| Budgets | per **grant**, not per session: compile/execute counts per candidate and the total wall reservation live in a persistent, `flock`-serialized ledger, reserved before each run and never returned. A grant id is bound to its first digest (`grant_ledger_conflict`); a corrupt ledger fails closed (`STORAGE_ERROR`) |
+| Cleanup on open | if opening a session fails or is interrupted (including `KeyboardInterrupt`) after the runtime was touched, the runtime is closed before the exception propagates |
+| Re-checks | gates, window and stage permission before every compile and execute |
+| Failures | refusals → `AUTHORIZATION_REQUIRED` with `details.reason`; no runtime → `SANDBOX_UNAVAILABLE` with `details.blockers`; runtime failure or protocol violation → `SANDBOX_FAILED`, session poisoned; candidate behavior is an observation, never a success or a score |
+| Runtime | `runtime = "firecracker"` selects the Firecracker backend (`lab_firecracker`): one microVM per stage under a systemd user scope and a rootless bwrap jail, with a read-only rate-limited image, no NIC and an authenticated vsock protocol. **Containment unverified; `configured_runtime` still refuses** (`isolation_adr_not_accepted`, `containment_unverified`). `aegis_core.testing.scripted_runtime` is a non-executing test double whose records are labeled `test_double` |
+| Host check | `python -m aegis_core.lab_host`: static prerequisites only; never claims enforcement |
+
+The guest supervisor drains bounded output after reaping the leader, kills its
+descendants, and polls aggregate job cgroup CPU usage during execution (10 ms
+poll interval; overshoot is possible). Missing CPU accounting is an infrastructure
+failure. Host OOM/deadline observations override guest results, including a
+claimed successful compilation and its binary.
+
+Firecracker preflight creates hashed, sealed anonymous memory copies of the VMM,
+bwrap, kernel and image; launch uses their held `/proc/<Core pid>/fd` aliases.
+Original path replacements and in-place writes cannot alter launched bytes.
+The combined asset bound is 2 GiB of additional host memory outside VM scopes;
+the containment plan reports it separately. Host OS libraries/systemd remain
+trusted dependencies. `host_asset_binding=sealed-memfd-v1` is bound into the
+containment-report identity; older reports do not authorize this launch path.
+Its namespace access and boot behavior have **not** been tested with a real VM.
+
+Unverified teardown retains process/scope tracking, state directories and asset
+descriptors, refuses further runs, and allows cleanup retries through `close()`.
+Legacy v1 grants without a bundle digest retain their old digest and ledger
+usage. Adding a bundle digest changes identity and cannot reuse an existing
+ledger id. Role B grant issuers must migrate multi-file grants; the merged worker
+already maps host enforcement and private evidence records. See
+[the execution review](docs/CORE_EXECUTION_REVIEW.md) for exact tests, migration
+evidence, native machine-code measurements and remaining safety blockers.
+
+Lab-declared digests (pair, hidden suite, sandbox policy, scorer) are bound and recorded but cannot be verified by Core. Grants are operator-attested, not signed. Sentinel, watermark and provenance features are not security controls for this path.
 
 ## 8. Provenance and Sentinel architecture (Workstream D)
 
@@ -257,3 +318,5 @@ Lab tools do not implement or bypass Core's two attack-lab authorization gates. 
 | A6 | The repository's public default branch is `dev/integration`. No release branch or required CI was confirmed at this revision; release/branch-protection policy must be agreed and implemented. |
 | A7 | The recorded full integration run used Python 3.14 and LLVM 22.1.8. The four-role documentation revision also passed the 105 Core/API/CLI tests on Python 3.12.14; native integration was not rerun there. Packages declare `>=3.11`. |
 | A8 | `.env.example` is empty. The runtime environment variables in use are `AEGIS_CONFIG` and `AEGIS_API_TOKEN`. |
+| A9 | No isolation runtime: ADR 0004 is proposed, `runsc` is not installed, and the V1–V11 verification has not run. Candidate execution is refused (`SANDBOX_UNAVAILABLE`). |
+| A10 | Candidate execution grants, like `AttackLabAuthorization`, are operator-attested files, not cryptographic credentials. Core persists grant usage (the ledger) but not the per-stage records, which are returned to the Lab. The ledger trusts the local filesystem: deleting the store resets it. |

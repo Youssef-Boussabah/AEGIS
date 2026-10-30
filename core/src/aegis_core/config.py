@@ -6,12 +6,18 @@ import os
 import re
 import tomllib
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
-from pydantic import Field, ValidationError, field_validator
+from pydantic import Field, StrictBool, StrictInt, ValidationError, field_validator, model_validator
 
 from .errors import AegisError
-from .models import BACKEND_PATTERN, AegisModel, ErrorCode, TaskKind
+from .lab_limits import (
+    CompileLimits,
+    SandboxLimits,
+    default_compile_ceiling,
+    default_execute_ceiling,
+)
+from .models import BACKEND_PATTERN, AegisModel, ErrorCode, Sha256, TaskKind
 
 DEFAULT_CONFIG_NAME = "aegis.toml"
 CONFIG_ENV_VAR = "AEGIS_CONFIG"
@@ -24,8 +30,96 @@ class StorageConfig(AegisModel):
     max_input_bytes: Annotated[int, Field(ge=1, le=4 * 1024**3)] = 64 * 1024 * 1024
 
 
+def _absolute(value: Path) -> Path:
+    if not value.is_absolute() or ".." in value.parts:
+        raise ValueError("must be an absolute path without '..'")
+    return value
+
+
+class FirecrackerConfig(AegisModel):
+    """Operator-pinned identities and host controls for the Firecracker backend.
+
+    Every path is absolute and every artifact is pinned by SHA-256. Nothing here
+    comes from a request. See docs/adr/0004-isolated-candidate-execution.md.
+    """
+
+    firecracker_path: Path
+    firecracker_sha256: Sha256
+    bwrap_path: Path = Path("/usr/bin/bwrap")
+    bwrap_sha256: Sha256
+    systemd_run_path: Path = Path("/usr/bin/systemd-run")
+    kernel_path: Path
+    kernel_sha256: Sha256
+    rootfs_path: Path
+    """Read-only guest system image (ext4). Attached read-only and rate-limited."""
+    rootfs_sha256: Sha256
+    guest_agent_sha256: Sha256
+    """SHA-256 of lab_guest_agent.py inside the image; the agent must report it."""
+    compiler_name: Literal["gcc", "clang"]
+    compiler_version: Annotated[str, Field(min_length=1, max_length=200)]
+    compiler_sha256: Sha256
+    state_dir: Path
+    """Private (0700) directory for per-VM runtime directories and vsock sockets."""
+    containment_verification_sha256: Sha256 | None = None
+    """SHA-256 of the containment report file below. Absent: the backend refuses to run."""
+    containment_report_path: Path | None = None
+    """``aegis.core.containment-report.v1`` file. Execution needs it to match the digest,
+    to have passed every required check on the candidate guest, and to be bound to
+    exactly this configuration (pins and host controls)."""
+    vcpu_count: Literal[1, 2] = 1
+    guest_overhead_mib: Annotated[StrictInt, Field(ge=32, le=1024)] = 128
+    """Guest kernel and agent memory, added to the job's memory and scratch."""
+    vmm_overhead_mib: Annotated[StrictInt, Field(ge=16, le=1024)] = 64
+    """Firecracker process memory beyond guest RAM, for the host scope's MemoryMax."""
+    vmm_tasks: Annotated[StrictInt, Field(ge=4, le=256)] = 16
+    """Host TasksMax for the scope (Firecracker threads, bwrap)."""
+    boot_timeout_ms: Annotated[StrictInt, Field(ge=500, le=120_000)] = 15_000
+    teardown_timeout_ms: Annotated[StrictInt, Field(ge=100, le=60_000)] = 5_000
+    host_grace_ms: Annotated[StrictInt, Field(ge=100, le=60_000)] = 2_000
+    """Extra time after the job's wall limit before the host kills the VM itself."""
+    block_bandwidth_bytes_per_s: Annotated[StrictInt, Field(ge=1024 * 1024, le=4 * 1024**3)] = (
+        64 * 1024 * 1024
+    )
+    block_ops_per_s: Annotated[StrictInt, Field(ge=10, le=1_000_000)] = 2_000
+    agent_port: Annotated[StrictInt, Field(ge=1024, le=65_535)] = 10_000
+
+    @field_validator(
+        "firecracker_path", "bwrap_path", "systemd_run_path", "kernel_path", "rootfs_path", "state_dir",
+        "containment_report_path",
+    )
+    @classmethod
+    def _paths(cls, value: Path | None) -> Path | None:
+        return None if value is None else _absolute(value)
+
+
+class CandidateExecutionConfig(AegisModel):
+    """Operator gate and ceilings for compiling and running untrusted Lab candidates.
+
+    This is a third, independent gate: enabling attack-lab jobs does not consent
+    to running generated code. Grants may never exceed these ceilings. Enabling
+    it does not make an isolation runtime available; see aegis_core.lab_execution.
+    """
+
+    enabled: StrictBool = False
+    compile_ceiling: CompileLimits = Field(default_factory=default_compile_ceiling)
+    execute_ceiling: SandboxLimits = Field(default_factory=default_execute_ceiling)
+    runtime: Literal["none", "firecracker"] = "none"
+    """The isolation backend. "none" refuses every execution."""
+    firecracker: FirecrackerConfig | None = None
+
+    @model_validator(mode="after")
+    def _runtime_section(self) -> CandidateExecutionConfig:
+        if self.runtime == "firecracker" and self.firecracker is None:
+            raise ValueError("runtime = 'firecracker' requires [attack_lab.candidate_execution.firecracker]")
+        if self.runtime != "firecracker" and self.firecracker is not None:
+            raise ValueError("a firecracker section requires runtime = 'firecracker'")
+        return self
+
+
 class AttackLabConfig(AegisModel):
-    enabled: bool = False
+    # Strict: a security gate opens only for a TOML boolean true, never "yes", "1" or 1.
+    enabled: StrictBool = False
+    candidate_execution: CandidateExecutionConfig = Field(default_factory=CandidateExecutionConfig)
 
 
 class AdapterSpec(AegisModel):
@@ -140,6 +234,13 @@ max_input_bytes = 67108864  # 64 MiB
 [attack_lab]
 # Attack-lab tasks run attacks against artifacts. They stay disabled unless an
 # operator enables them here AND every request carries an authorization record.
+enabled = false
+
+# Compiling and running untrusted Lab candidates is a separate, third gate. It
+# also needs an approved isolation runtime, which this version does not provide:
+# candidate execution is refused with SANDBOX_UNAVAILABLE even when enabled.
+# See docs/adr/0004-isolated-candidate-execution.md.
+[attack_lab.candidate_execution]
 enabled = false
 
 # Protection backends are registered as [adapters.<name>]. None is registered by

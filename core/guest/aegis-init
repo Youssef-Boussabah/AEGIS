@@ -1,0 +1,13 @@
+#!/usr/bin/python3 -IS
+"""PID 1 of the AEGIS candidate microVM (installed as /sbin/aegis-init).
+
+No shell, no mount binary, no setuid file exists in the image. The kernel mounts
+the root image read-only; the agent performs the early mounts with mount(2),
+serves exactly one job over vsock and powers the VM off.
+"""
+import sys
+
+sys.path.insert(0, "/opt/aegis")
+import lab_guest_agent  # noqa: E402
+
+lab_guest_agent.init_main()
