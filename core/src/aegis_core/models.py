@@ -83,6 +83,11 @@ class ErrorCode(StrEnum):
     ADAPTER_FAILED = "ADAPTER_FAILED"
     ADAPTER_INVALID_OUTPUT = "ADAPTER_INVALID_OUTPUT"
     ARTIFACT_INTEGRITY_ERROR = "ARTIFACT_INTEGRITY_ERROR"
+    # No approved, verified isolation runtime: candidate code was not started.
+    SANDBOX_UNAVAILABLE = "SANDBOX_UNAVAILABLE"
+    # The isolation runtime failed (start, enforcement, protocol, cleanup). An
+    # infrastructure failure, never a candidate outcome.
+    SANDBOX_FAILED = "SANDBOX_FAILED"
     STORAGE_ERROR = "STORAGE_ERROR"
     INTERNAL_ERROR = "INTERNAL_ERROR"
 

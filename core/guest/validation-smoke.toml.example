@@ -1,0 +1,33 @@
+# First trusted containment test: Firecracker smoke fixture, host-observable checks only.
+# Create the operator copy with:
+#   mkdir -p ~/.local/share/aegis-vm/validation
+#   sed "s|/home/OPERATOR|$HOME|g; s|/run/user/OPERATOR_UID|/run/user/$(id -u)|g" \
+#     core/guest/validation-smoke.toml.example > ~/.local/share/aegis-vm/validation/smoke.toml
+# Candidate execution stays disabled: both gates are false and no containment report is pinned.
+# guest_agent_* and compiler_* are unused by the smoke target (no agent, no canary runs).
+
+[storage]
+root = "/home/OPERATOR/.local/share/aegis-vm/validation/store"
+
+[attack_lab]
+enabled = false
+
+[attack_lab.candidate_execution]
+enabled = false
+runtime = "firecracker"
+
+[attack_lab.candidate_execution.firecracker]
+firecracker_path = "/home/OPERATOR/.local/share/aegis-vm/bin/firecracker"
+firecracker_sha256 = "99ad0f5cd0514a88aad0e9ae8cfdb3cc3b4ab9d190e1194602406c786b5de7a5"  # v1.17.0 release
+bwrap_path = "/usr/bin/bwrap"
+bwrap_sha256 = "8dea6d013ac3a476f1964ffc6d407a3b6223f43cd4a0c43207146a5cefe59882"        # bubblewrap 0.12.0 (this host)
+systemd_run_path = "/usr/bin/systemd-run"
+kernel_path = "/home/OPERATOR/.local/share/aegis-vm/images/vmlinux-6.1.102"
+kernel_sha256 = "3b6e45c66d1b66d4fb0a1528107abbe890972f94e902bafe85fdf5108288c575"      # smoke kernel only
+rootfs_path = "/home/OPERATOR/.local/share/aegis-vm/boot-test/smoke-rootfs.ext4"
+rootfs_sha256 = "a7df8e9130314087d0c65a13635e3b9c1c72092300f3ca791c5d506118e144e5"      # attached read-only
+guest_agent_sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+compiler_name = "gcc"
+compiler_version = "unused-for-smoke"
+compiler_sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+state_dir = "/run/user/OPERATOR_UID/aegis-fc"

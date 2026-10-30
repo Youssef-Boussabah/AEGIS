@@ -1,0 +1,54 @@
+{
+  "schema_version": "aegis.core.canary-manifest.v1",
+  "compile_flags": ["-std=c11", "-O2", "-static"],
+  "support_files": ["canary.h"],
+  "compile_limits": {
+    "wall_ms": 60000, "cpu_ms": 60000, "memory_bytes": 536870912, "max_processes": 32,
+    "scratch_bytes": 67108864, "stdout_bytes": 65536, "stderr_bytes": 65536, "binary_bytes": 4194304
+  },
+  "execute_limits": {
+    "wall_ms": 5000, "cpu_ms": 2000, "memory_bytes": 67108864, "max_processes": 8,
+    "scratch_bytes": 8388608, "stdout_bytes": 4096, "stderr_bytes": 4096
+  },
+  "cases": [
+    {"case": "control", "source": "control.c", "args": ["41"],
+     "expect": {"execute": {"status": "exited", "exit_code": 0,
+                            "fields": {"value": {"eq": "42"}, "uid": {"eq": "1000"}}}}},
+    {"case": "net", "source": "net.c",
+     "expect": {"execute": {"status": "exited", "exit_code": 0, "fields": {
+       "inet": {"ne": "OK"}, "udp": {"ne": "OK"}, "inet6": {"ne": "OK"}, "vsock_host": {"ne": "OK"},
+       "vsock_host_agent_port": {"ne": "OK"}, "vsock_self_agent": {"ne": "OK"}, "packet": {"ne": "OK"},
+       "ifaces": {"in": ["lo", "none"]}}}}},
+    {"case": "fs", "source": "fs.c",
+     "expect": {"execute": {"status": "exited", "exit_code": 0, "fields": {
+       "home": {"eq": "absent"}, "host_root": {"eq": "absent"}, "kvm": {"eq": "absent"},
+       "write_root": {"ne": "OK"}, "write_usr": {"ne": "OK"}, "write_etc": {"ne": "OK"},
+       "vda_rw": {"ne": "OK"}, "vda_ro": {"ne": "OK"}, "proc1_environ": {"ne": "OK"},
+       "proc1_mem": {"ne": "OK"}, "mount": {"ne": "OK"}, "chroot": {"ne": "OK"}, "userns": {"ne": "OK"},
+       "setid": {"eq": "0"}, "scratch": {"eq": "OK"}}}}},
+    {"case": "identity", "source": "identity.c",
+     "expect": {"execute": {"status": "exited", "exit_code": 0, "fields": {
+       "uid": {"eq": "1000"}, "euid": {"eq": "1000"}, "gid": {"eq": "1000"}, "egid": {"eq": "1000"},
+       "groups": {"eq": "0"}, "capeff": {"eq": "0000000000000000"}, "nnp": {"eq": "1"}}}}},
+    {"case": "forkbomb", "source": "forkbomb.c",
+     "expect": {"execute": {"status": "limit_exceeded", "limit": "processes"}}},
+    {"case": "memory", "source": "memory.c",
+     "expect": {"execute": {"status": "limit_exceeded", "limit": "memory",
+                            "host": {"oom_kills_eq": 0, "peak_le_memory_max": true}}}},
+    {"case": "scratch", "source": "scratch.c",
+     "expect": {"execute": {"status": "exited", "exit_code": 4, "fields": {
+       "errno": {"in": ["ENOSPC", "EFBIG"]}, "written": {"le": 8388608}}}}},
+    {"case": "spin", "source": "spin.c", "execute_limits": {"cpu_ms": 1000, "wall_ms": 5000},
+     "expect": {"execute": {"status": "limit_exceeded", "limit": "cpu"}}},
+    {"case": "sleeper", "source": "sleeper.c", "execute_limits": {"wall_ms": 2000},
+     "expect": {"execute": {"status": "timeout"}}},
+    {"case": "flood_stdout", "source": "flood.c", "args": ["1"],
+     "expect": {"execute": {"status": "limit_exceeded", "limit": "stdout", "stdout_len_le": 4096}}},
+    {"case": "flood_stderr", "source": "flood.c", "args": ["2"],
+     "expect": {"execute": {"status": "limit_exceeded", "limit": "stderr", "stderr_len_le": 4096}}},
+    {"case": "bigbinary", "source": "bigbinary.c", "compile_limits": {"binary_bytes": 1048576},
+     "expect": {"compile": {"status": "limit_exceeded", "limit": "binary"}}},
+    {"case": "orphan", "source": "orphan.c",
+     "expect": {"execute": {"status": "exited", "exit_code": 0, "fields": {"spawned": {"eq": "yes"}}}}}
+  ]
+}

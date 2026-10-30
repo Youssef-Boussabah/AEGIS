@@ -1,0 +1,36 @@
+# AEGIS candidate-guest kernel requirements, merged over Firecracker's v1.17.0
+# microvm guest config for the 6.1 series. "=y" lines are required in the final
+# .config; "is not set" lines are forbidden (checked by kernel_config_check.py).
+CONFIG_VIRTIO_MMIO=y
+CONFIG_VIRTIO_BLK=y
+CONFIG_EXT4_FS=y
+CONFIG_NET=y
+CONFIG_VSOCKETS=y
+CONFIG_VIRTIO_VSOCKETS=y
+CONFIG_CGROUPS=y
+CONFIG_MEMCG=y
+CONFIG_CGROUP_PIDS=y
+CONFIG_CGROUP_SCHED=y
+CONFIG_TMPFS=y
+CONFIG_DEVTMPFS=y
+CONFIG_PROC_FS=y
+CONFIG_SYSFS=y
+CONFIG_BINFMT_ELF=y
+CONFIG_BINFMT_SCRIPT=y
+CONFIG_STRICT_DEVMEM=y
+# No IP stack at all: the agent uses vsock only.
+# CONFIG_INET is not set
+# CONFIG_PACKET is not set
+# CONFIG_VIRTIO_NET is not set
+# CONFIG_MODULES is not set
+# CONFIG_USER_NS is not set
+# CONFIG_BPF_SYSCALL is not set
+# CONFIG_USERFAULTFD is not set
+# CONFIG_IO_URING is not set
+# CONFIG_KEXEC is not set
+# CONFIG_DEVMEM is not set
+# CONFIG_NET_9P is not set
+# CONFIG_9P_FS is not set
+# CONFIG_VIRTIO_FS is not set
+# CONFIG_FUSE_FS is not set
+# CONFIG_VIRTIO_BALLOON is not set

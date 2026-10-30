@@ -1,0 +1,13 @@
+{
+  "comment": "Rootless kernel-build environment (used inside bwrap; never booted). Pin 'snapshot' first.",
+  "mirror": "https://snapshot.debian.org/archive/debian",
+  "snapshot": "PIN-ME-YYYYMMDDTHHMMSSZ",
+  "suite": "trixie",
+  "architecture": "amd64",
+  "source_date_epoch": 1761696000,
+  "packages": ["gcc", "make", "flex", "bison", "bc", "libelf-dev", "libssl-dev", "perl", "cpio",
+               "dash", "coreutils", "sed", "grep", "mawk", "findutils", "tar", "xz-utils",
+               "diffutils", "python3-minimal"],
+  "exclude": ["dpkg", "debconf", "usr-is-merged", "usrmerge", "init-system-helpers", "libdebconfclient0"],
+  "symlinks": {"./usr/bin/sh": "dash", "./usr/bin/awk": "mawk", "./usr/bin/cc": "gcc"}
+}
