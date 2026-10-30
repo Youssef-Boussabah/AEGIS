@@ -225,58 +225,76 @@ def digest_file(path):
         return hashlib.file_digest(handle, "sha256").digest()
 
 
+def plugin_path(raw):
+    plugin = Path(raw)
+    if not plugin.is_absolute() or not plugin.is_file() or not os.access(plugin, os.R_OK):
+        fail("PLUGIN_UNAVAILABLE", "Plugin must be an absolute readable regular file.")
+    return plugin
+
+
+def run_shield(args, request, source, scratch, config, opt, plugin):
+    """Stage the hash-checked input, run Shield, validate its report and verify its IR.
+
+    Leaves ``protected.ll`` and ``shield-report.json`` in ``scratch`` and returns
+    the validated report. Every later stage must start from these files.
+    """
+    stage_input(source, scratch / "shield-input.ll", request["input_sha256"], args.max_input_bytes)
+    (scratch / "shield-config.json").write_text(json.dumps(config), encoding="utf-8")
+    file_cap = max(args.max_output_bytes, args.max_report_bytes, LOG_LIMIT)
+    version_raw = run_tool([opt, "--version"], scratch, [], file_cap)
+    version = re.search(rb"LLVM version (22\.[0-9]+\.[0-9]+)(?:\s|$)", version_raw)
+    if version is None:
+        fail("UNSUPPORTED_LLVM", "The adapter requires opt from LLVM 22.x.")
+    llvm_version = version.group(1).decode("ascii")
+    ir, report_path = scratch / "protected.ll", scratch / "shield-report.json"
+    watched = [(ir, args.max_output_bytes), (report_path, args.max_report_bytes)]
+    run_tool([opt, "-load-pass-plugin", str(plugin),
+              "-passes=aegis-shield<config=shield-config.json;report=shield-report.json>,verify",
+              "-S", "shield-input.ll", "-o", "protected.ll"], scratch, watched, file_cap)
+    regular(ir, args.max_output_bytes)
+    try:
+        report = validate_report(bounded_read(report_path, args.max_report_bytes), config, llvm_version)
+    except InvalidReport:
+        fail("INVALID_SHIELD_REPORT", "Shield report failed schema or invocation consistency validation.")
+    if not report["transformed_sites"]:
+        fail("NO_TRANSFORMATIONS_APPLIED", "Shield reported zero transformed sites; no protection success is claimed.")
+    # Independently parse/verify the emitted IR, without loading the plugin.
+    # Neither compilation nor execution of native artifacts is performed.
+    run_tool([opt, "-passes=verify", "-disable-output", "protected.ll"],
+             scratch, watched, file_cap)
+    if digest_file(ir) == digest_file(scratch / "shield-input.ll"):
+        fail("INVALID_ARTIFACT", "Shield reported transformations but the output is unchanged.")
+    return report
+
+
+def shield_evidence(report):
+    reasons = {}
+    for row in report["functions"]:
+        reasons[row["reason"]] = reasons.get(row["reason"], 0) + 1
+    return {"summary": "Shield reports arithmetic transformations; no established security property.",
+            "data": {"llvm_version": report["llvm_version"],
+                     "transformed_sites": report["transformed_sites"],
+                     "function_reasons": reasons, "config": report["config"],
+                     "report_schema": "urn:aegis-shield-llvm:report:1",
+                     "limitations": "No attack resistance or native runtime equivalence evaluated."}}
+
+
 def execute(args):
     work = Path.cwd()
     request, source, output = read_request(Path(args.aegis_request), work)
     config = shield_config(request.get("options", {}))
     opt = tool_path(args.opt)
-    plugin = Path(args.plugin)
-    if not plugin.is_absolute() or not plugin.is_file() or not os.access(plugin, os.R_OK):
-        fail("PLUGIN_UNAVAILABLE", "Plugin must be an absolute readable regular file.")
+    plugin = plugin_path(args.plugin)
     # Private work area and fixed filenames prevent pipeline injection even
     # when the store root contains ';', ',' or other pipeline metacharacters.
     with tempfile.TemporaryDirectory(prefix="shield-", dir=work) as temporary:
         scratch = Path(temporary)
-        stage_input(source, scratch / "shield-input.ll", request["input_sha256"], args.max_input_bytes)
-        (scratch / "shield-config.json").write_text(json.dumps(config), encoding="utf-8")
-        file_cap = max(args.max_output_bytes, args.max_report_bytes, LOG_LIMIT)
-        version_raw = run_tool([opt, "--version"], scratch, [], file_cap)
-        version = re.search(rb"LLVM version (22\.[0-9]+\.[0-9]+)(?:\s|$)", version_raw)
-        if version is None:
-            fail("UNSUPPORTED_LLVM", "The adapter requires opt from LLVM 22.x.")
-        llvm_version = version.group(1).decode("ascii")
-        ir, report_path = scratch / "protected.ll", scratch / "shield-report.json"
-        watched = [(ir, args.max_output_bytes), (report_path, args.max_report_bytes)]
-        run_tool([opt, "-load-pass-plugin", str(plugin),
-                  "-passes=aegis-shield<config=shield-config.json;report=shield-report.json>,verify",
-                  "-S", "shield-input.ll", "-o", "protected.ll"], scratch, watched, file_cap)
-        regular(ir, args.max_output_bytes)
-        try:
-            report = validate_report(bounded_read(report_path, args.max_report_bytes), config, llvm_version)
-        except InvalidReport:
-            fail("INVALID_SHIELD_REPORT", "Shield report failed schema or invocation consistency validation.")
-        if not report["transformed_sites"]:
-            fail("NO_TRANSFORMATIONS_APPLIED", "Shield reported zero transformed sites; no protection success is claimed.")
-        # Independently parse/verify the emitted IR, without loading the plugin.
-        # Neither compilation nor execution of native artifacts is performed.
-        run_tool([opt, "-passes=verify", "-disable-output", "protected.ll"],
-                 scratch, watched, file_cap)
-        if digest_file(ir) == digest_file(scratch / "shield-input.ll"):
-            fail("INVALID_ARTIFACT", "Shield reported transformations but the output is unchanged.")
-        publish(ir, output / "protected.ll", args.max_output_bytes)
-        publish(report_path, output / "shield-report.json", args.max_report_bytes)
-        reasons = {}
-        for row in report["functions"]:
-            reasons[row["reason"]] = reasons.get(row["reason"], 0) + 1
+        report = run_shield(args, request, source, scratch, config, opt, plugin)
+        publish(scratch / "protected.ll", output / "protected.ll", args.max_output_bytes)
+        publish(scratch / "shield-report.json", output / "shield-report.json", args.max_report_bytes)
         return {"protocol": PROTOCOL, "status": "succeeded",
                 "outputs": [{"path": "protected.ll"}, {"path": "shield-report.json"}],
-                "evidence": [{"summary": "Shield reports arithmetic transformations; no established security property.",
-                              "data": {"llvm_version": report["llvm_version"],
-                                       "transformed_sites": report["transformed_sites"],
-                                       "function_reasons": reasons, "config": report["config"],
-                                       "report_schema": "urn:aegis-shield-llvm:report:1",
-                                       "limitations": "No attack resistance or native runtime equivalence evaluated."}}],
-                "attack_evaluations": [], "error": None}
+                "evidence": [shield_evidence(report)], "attack_evaluations": [], "error": None}
 
 
 def positive(raw):
@@ -286,17 +304,21 @@ def positive(raw):
     return value
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+def argument_parser(description=__doc__):
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--opt", required=True)
     parser.add_argument("--plugin", required=True)
     parser.add_argument("--aegis-request", required=True)
     parser.add_argument("--max-input-bytes", type=positive, default=64 * 1024**2)
     parser.add_argument("--max-output-bytes", type=positive, default=128 * 1024**2)
     parser.add_argument("--max-report-bytes", type=positive, default=4 * 1024**2)
-    args = parser.parse_args()
+    return parser
+
+
+def respond(run, args):
+    """Print exactly one protocol result; handled failures exit 0 with status failed."""
     try:
-        result = execute(args)
+        result = run(args)
     except Failure as exc:
         result = {"protocol": PROTOCOL, "status": "failed", "outputs": [], "evidence": [],
                   "attack_evaluations": [], "error": {"code": exc.code, "message": exc.message}}
@@ -306,6 +328,10 @@ def main():
                                                         "message": "Adapter could not safely process job files."}}
     print(json.dumps(result, allow_nan=False))
     return 0
+
+
+def main():
+    return respond(execute, argument_parser().parse_args())
 
 
 if __name__ == "__main__":

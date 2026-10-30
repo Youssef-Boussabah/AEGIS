@@ -26,6 +26,37 @@ MAX_WORKER_BYTES = 24 * 1024 * 1024
 PUBLIC_CATALOGUE_URL = "https://tokenfactory.nebius.com/api/public/models_info"
 
 
+def verify_model_evidence(account_bytes, catalogue_bytes, model, *, context_tokens, input_price, output_price):
+    """Check archived catalogue bytes too; no network or credentials needed."""
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        account = parse_strict_json(account_bytes)
+        if (account.get("object") != "list" or not isinstance(account.get("data"), list)
+                or not any(isinstance(row, dict) and row.get("id") == model for row in account["data"])):
+            raise ProviderError("model_not_found", submission="not_submitted")
+        public = parse_strict_json(catalogue_bytes)
+        if not isinstance(public, list):
+            raise ValueError("catalogue_list_required")
+        matches = [flavor for row in public if row.get("vendor", "").lower() == "nvidia"
+                   and row.get("status") == "active" and row.get("license", {}).get("url")
+                   for flavor in row.get("flavors", []) if flavor.get("model_id") == model]
+        if len(matches) != 1 or not model.startswith("nvidia/"):
+            raise ProviderError("model_not_found", submission="not_submitted")
+        info = matches[0]
+        prices = [Decimal(str(info[key])) * 1_000_000 for key in
+                  ("input_price_per_million_tokens", "output_price_per_million_tokens")]
+        if (type(info.get("max_model_len")) is not int or info["max_model_len"] != context_tokens
+                or info.get("external_provider") is not False
+                or any(not price.is_finite() or price < 0 or price > cap
+                       for price, cap in zip(prices, (input_price, output_price)))):
+            raise ValueError("catalogue_limits_mismatch")
+    except ProviderError:
+        raise
+    except (ValueError, TypeError, KeyError, AttributeError, InvalidOperation):
+        raise ProviderError("invalid_request", submission="not_submitted") from None
+
+
 def supervise(argv: list[str], payload: bytes, *, timeout: float) -> bytes:
     """Bound a trusted worker, including stalled DNS and trickling HTTP responses.
 
@@ -110,7 +141,7 @@ class BoundedNebiusProvider(NebiusProvider):
         if request.store is not False:
             raise PermissionError("store_false_required")
         events = self._worker("complete", timeout=timeout, request=request)
-        return parse_completion(events["response"])
+        return parse_completion(events["response"], parser=self.completion_parser)
 
     def verify_model(self, model: str, *, context_tokens: int, input_price: int, output_price: int,
                      timeout: float) -> None:
@@ -119,21 +150,6 @@ class BoundedNebiusProvider(NebiusProvider):
         Prices are microusd per million tokens. Ceiling reservations deliberately
         use the complete published context, avoiding an unverified tokenizer bound.
         """
-        from decimal import Decimal
-
         events = self._worker("catalogue", timeout=timeout)
-        account = parse_strict_json(events["account_models"])
-        if account.get("object") != "list" or not any(row.get("id") == model for row in account["data"]):
-            raise ProviderError("model_not_found", submission="not_submitted")
-        public = parse_strict_json(events["public_catalogue"])
-        matches = [flavor for row in public if row.get("vendor", "").lower() == "nvidia"
-                   and row.get("status") == "active" and row.get("license", {}).get("url")
-                   for flavor in row.get("flavors", []) if flavor.get("model_id") == model]
-        if len(matches) != 1 or not model.startswith("nvidia/"):
-            raise ProviderError("model_not_found", submission="not_submitted")
-        info = matches[0]
-        if (type(info.get("max_model_len")) is not int or info["max_model_len"] != context_tokens
-                or info.get("external_provider") is not False
-                or Decimal(str(info["input_price_per_million_tokens"])) * 1_000_000 > input_price
-                or Decimal(str(info["output_price_per_million_tokens"])) * 1_000_000 > output_price):
-            raise ProviderError("invalid_request", submission="not_submitted")
+        verify_model_evidence(events["account_models"], events["public_catalogue"], model,
+                              context_tokens=context_tokens, input_price=input_price, output_price=output_price)

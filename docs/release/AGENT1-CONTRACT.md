@@ -1,5 +1,10 @@
 # Agent 1 product API handoff
 
+> Historical product request, superseded by [FINAL_API_CONTRACT.md](FINAL_API_CONTRACT.md).
+> Registered-output downloads, optional job signing, fresh verification and Sentinel
+> evaluation are now implemented. Research imports remain local and behaviorally
+> unscored. Current verification is in [FINAL_RELEASE_REPORT.md](FINAL_RELEASE_REPORT.md).
+
 No backend change is necessary for the supported Shield demonstration. The real
 UI uses the merged `GET /healthz`, `POST /v1/jobs`, `GET /v1/jobs/{job_id}` and
 `GET /v1/jobs/{job_id}/report`. The product launcher supplies `AEGIS_CONFIG` with

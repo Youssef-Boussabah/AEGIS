@@ -11,7 +11,13 @@ optimization and ELF linker section garbage collection. Mirage creates a side
 module and combines it with the input using `llvm-link`; it does not edit Shield,
 Core, ImageLab or shared contracts. Every generated module is verified with `opt`.
 Insertion fails explicitly on malformed IR, symbol collisions, unsupported targets,
-toolchain mismatches or missing retention metadata. Final-binary retention still
+toolchain mismatches or missing retention metadata. The decoys are compiled for
+Clang's default target; a module whose four-part triple differs from it only in the
+vendor field (rustc emits `x86_64-unknown-linux-gnu`, Clang defaults to
+`x86_64-pc-linux-gnu`) gets decoys compiled with `--target=<module triple>`, so the
+linked module keeps its own triple. Every other mismatch fails with
+`target_triple_mismatch`. Rust IR was exercised only on one external crate
+(see `docs/release/FULL_SYSTEM_VALIDATION.md`). Final-binary retention still
 requires independent inspection after the application's own build.
 
 ## Setup and usage
@@ -35,7 +41,18 @@ names, source-template digest and toolchain hashes. The disabled module is
 byte-identical to its input. `aegis_mirage.restore(original, report, output)`
 reproduces the no-decoy input after checking its digest; it requires the original
 and does not attempt textual surgery on optimized IR. Nothing here executes
-input/output programs or registers a Core backend.
+input/output programs.
+
+## Core backend (`llvm-shield-mirage`)
+
+Mirage is registered with Core only through the combined Shield + Mirage adapter
+in [protectors/llvm/adapter](../llvm/adapter/README.md#combined-shield--mirage-backend-llvm-shield-mirage),
+which runs Mirage on the verified Shield output of each job. That adapter passes
+`transform(..., runner=..., work_dir=...)`: `runner(argv, cwd)` replaces the
+standalone runner so tools stay in Core's process group (the standalone runner
+starts its own session, which suits the CLI but would escape a Core timeout), and
+`work_dir` keeps scratch files in the job's private work directory. Both default
+to the standalone behaviour. There is no standalone Mirage-only Core backend.
 
 ## Real demonstration
 

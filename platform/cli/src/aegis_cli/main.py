@@ -1,8 +1,9 @@
-"""`aegis` CLI: init, inspect, protect, report.
+"""`aegis` CLI: init, inspect, protect, report, verify, evaluate.
 
 Exit codes:
-    0  success
-    1  the job ran and failed, or the platform health check is degraded
+    0  success (verify: every output verified; evaluate: action permitted)
+    1  the job ran and failed, the platform health check is degraded, an output
+       is not verified, an action is denied, or stored bytes changed
     2  invalid usage or request
     3  configuration error (missing, invalid, already exists) or storage error
     4  unsupported backend or task
@@ -42,6 +43,10 @@ from aegis_core.models import (
     TaskKind,
 )
 from aegis_core.orchestrator import Orchestrator
+from aegis_provenance.jobs import JobAttestationStatus, JobAttestor
+from aegis_sentinel.models import PermissionAction
+
+CLI_CALLER_ID = "aegis-cli"
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -67,6 +72,9 @@ EXIT_BY_CODE: dict[ErrorCode, int] = {
     ErrorCode.INPUT_TOO_LARGE: EXIT_USAGE,
     ErrorCode.JOB_CONFLICT: EXIT_CONFLICT,
     ErrorCode.REPORT_NOT_READY: EXIT_CONFLICT,
+    ErrorCode.ARTIFACT_NOT_FOUND: EXIT_NOT_FOUND,
+    ErrorCode.POLICY_DENIED: EXIT_AUTHORIZATION,
+    ErrorCode.ARTIFACT_INTEGRITY_ERROR: EXIT_FAILED,
 }
 
 
@@ -126,11 +134,43 @@ def _print_report(report: ProtectionReport) -> None:
         print(f"    - {line}")
 
 
+def _print_attestation(status: JobAttestationStatus) -> None:
+    print(f"  signing:   {status.signing.state}: {status.signing.message}")
+    print(f"  sentinel:  {status.sentinel.state}: {status.sentinel.message}")
+    for item in status.artifacts:
+        sig = item.signature
+        label = sig.status.upper()
+        if sig.error_code:
+            label += f" [{sig.error_code}]"
+        print(f"  output:    {item.name}  sha256={item.sha256}")
+        print(f"    signature: {label}: {sig.message}")
+        if sig.key_id:
+            print(f"    key id:    {sig.key_id}")
+        pol = item.policy
+        if pol.status == "valid":
+            allowed = ",".join(p.action.value for p in pol.permissions if p.allowed) or "none"
+            mode = pol.enforcement_mode.value if pol.enforcement_mode else "?"
+            print(f"    policy:    valid {mode}; allowed: {allowed}")
+        else:
+            print(f"    policy:    {pol.status}" + (f": {'; '.join(pol.errors)}" if pol.errors else ""))
+
+
 # ----------------------------------------------------------------- commands
 
 
 def _load(args: argparse.Namespace) -> AegisConfig:
     return load_config(resolve_config_path(args.config))
+
+
+def _orchestrator(config: AegisConfig) -> tuple[Orchestrator, JobAttestor]:
+    """Orchestrator with output signing / Sentinel policies wired in when configured.
+
+    A broken signing configuration raises CONFIG_INVALID (exit 3) before any job runs.
+    """
+    orchestrator = Orchestrator(config)
+    attestor = JobAttestor.from_config(config, orchestrator.store, clock=orchestrator.clock)
+    orchestrator.post_success_hooks.append(attestor.attest)
+    return orchestrator, attestor
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -246,14 +286,54 @@ def _build_policy(args: argparse.Namespace) -> ProtectionPolicy:
 def cmd_protect(args: argparse.Namespace) -> int:
     config = _load(args)
     policy = _build_policy(args)
-    orchestrator = Orchestrator(config)
+    orchestrator, attestor = _orchestrator(config)
     job = orchestrator.submit(policy, source=Path(args.input))
     job = orchestrator.run(job.job_id)
     if args.json:
         _emit_json(job.model_dump(mode="json"))
     else:
         _print_job(job)
+        if job.status is JobStatus.SUCCEEDED:
+            _print_attestation(attestor.status(job))
+            print(f"  verify:  aegis verify {job.job_id}")
     return EXIT_OK if job.status is JobStatus.SUCCEEDED else EXIT_FAILED
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    config = _load(args)
+    orchestrator, attestor = _orchestrator(config)
+    status = attestor.status(orchestrator.get_job(args.job_id))
+    if args.json:
+        _emit_json(status.model_dump(mode="json", by_alias=True))
+    else:
+        print(f"job {status.job_id}: {status.job_status.value}")
+        _print_attestation(status)
+        print(f"  result:    {'ALL OUTPUTS VERIFIED' if status.all_verified else 'NOT VERIFIED'}")
+        print("  limitations:")
+        for line in status.limitations:
+            print(f"    - {line}")
+    return EXIT_OK if status.all_verified else EXIT_FAILED
+
+
+def cmd_evaluate(args: argparse.Namespace) -> int:
+    config = _load(args)
+    orchestrator, attestor = _orchestrator(config)
+    job, artifact = orchestrator.find_output(args.job_id, args.sha256)
+    decision = attestor.evaluate(
+        job,
+        artifact,
+        PermissionAction(args.action),
+        caller_id=args.caller_id,
+        environment=args.environment,
+    )
+    if args.json:
+        _emit_json(decision.model_dump(mode="json", by_alias=True))
+    else:
+        verdict = "PERMITTED" if decision.permitted else "DENIED"
+        print(f"{verdict}: {decision.action.value} on {artifact.name} ({decision.enforcement_mode.value})")
+        print(f"  reason: {decision.reason}")
+        print("  caller and environment identifiers are asserted, not authenticated")
+    return EXIT_OK if decision.permitted else EXIT_FAILED
 
 
 def cmd_report(args: argparse.Namespace) -> int:
@@ -316,6 +396,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_report.add_argument("job_id")
     p_report.add_argument("--output", help="also write the JSON report to this file")
     p_report.set_defaults(func=cmd_report)
+
+    p_verify = sub.add_parser(
+        "verify",
+        parents=[common],
+        help="verify a job's signed outputs and Sentinel policies (exit 0 only if all verified)",
+    )
+    p_verify.add_argument("job_id")
+    p_verify.set_defaults(func=cmd_verify)
+
+    p_eval = sub.add_parser(
+        "evaluate",
+        parents=[common],
+        help="ask a job output's Sentinel policy whether an action is permitted",
+    )
+    p_eval.add_argument("job_id")
+    p_eval.add_argument("sha256", help="SHA-256 of a registered output artifact")
+    p_eval.add_argument("--action", required=True, choices=[a.value for a in PermissionAction])
+    p_eval.add_argument("--caller-id", help="asserted caller id (not authenticated)")
+    p_eval.add_argument("--environment", help="asserted environment (not authenticated)")
+    p_eval.set_defaults(func=cmd_evaluate)
     return parser
 
 

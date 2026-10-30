@@ -69,3 +69,20 @@ Exit codes:
 - `0`: Permitted / Valid
 - `1`: Denied / Invalid policy
 - `2`: Missing file or argument error
+
+---
+
+## 4. Use in AEGIS jobs and fail-closed evaluation
+
+- With `[sentinel]` configured, every output of a succeeded AEGIS job gets a
+  policy (listed `allowed_actions` allowed, all other actions explicitly
+  denied), created by `aegis_provenance.jobs` and checked with this package's
+  validator. AEGIS's artifact download is the cooperating enforcement point
+  (`redistribute`); see ARCHITECTURE.md §8a.
+- `evaluate_action` now **fails closed** when a policy restricts
+  `allowed_caller_ids` or `environments` and the caller supplies none
+  (previously the restriction was skipped).
+- Note: `aegis-sentinel create` still allows `execute` unless `--deny-execute`
+  is passed; AEGIS-created job policies do not use that default.
+- Caller ids and environments are asserted by the caller, not authenticated.
+  Sentinel's `attack_evaluate` permission never opens AEGIS attack-lab gates.

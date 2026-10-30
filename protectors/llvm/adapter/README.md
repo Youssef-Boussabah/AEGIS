@@ -147,6 +147,61 @@ independently prove that a trusted plugin's claimed transformations occurred.
 Failed jobs may leave partial private work files after a hard timeout or partial
 publication after an I/O error; core registers no output artifacts for them.
 
+## Combined Shield + Mirage backend (`llvm-shield-mirage`)
+
+`aegis_shield_mirage_adapter.py` is a second protocol executable that reuses this
+adapter's request validation, Shield stage, runner and limits unchanged, then runs
+the [Mirage](../../mirage/README.md) transformer on **exactly** the verified Shield
+output. The full consumer contract is
+[docs/release/NATIVE_BACKEND_CONTRACT.md](../../../docs/release/NATIVE_BACKEND_CONTRACT.md).
+
+```toml
+[adapters.llvm-shield-mirage]
+command = ["/absolute/repo/.venv/bin/python", "/absolute/repo/protectors/llvm/adapter/aegis_shield_mirage_adapter.py", "--opt", "/usr/bin/opt", "--plugin", "/tmp/aegis-shield-build/AegisShield.so", "--clang", "/usr/bin/clang", "--llvm-link", "/usr/bin/llvm-link"]
+tasks = ["protect"]
+timeout_seconds = 300
+env_passthrough = []
+max_stdout_bytes = 65536
+```
+
+`--clang` and `--llvm-link` must be absolute and from the same LLVM 22 installation
+as `--opt`. The adapter imports Mirage from `protectors/mirage/src` beside this
+directory (never from another installation) and fails with `TOOL_UNAVAILABLE` if it
+is missing. Deploy the two directories together.
+
+Chain: hash-checked input → Shield (validated report, plugin-free verification,
+changed output) → Mirage on that file → Mirage report must name the Shield
+output's SHA-256 as its input and the final module's SHA-256 as its output →
+plugin-free verification of the final module → exclusive publication of
+`protected.ll`, `shield-stage.ll`, `shield-report.json` and `mirage-report.json`.
+Core hashes all four, so the chain can be rechecked from Core's records alone.
+Mirage's `clang`/`llvm-link`/`opt` calls go through this adapter's `run_tool`:
+they stay **in Core's process group** (Mirage's standalone runner starts its own
+session, which a Core timeout could not kill), with the same minimal environment
+and file limits. Mirage compiles only its own generated decoy source to IR; no
+input, output or native artifact is executed.
+
+Additional options: `mirage-seed` (decimal string ≤ 2^63−1; default the `seed`
+value, required when `seed` is larger), `mirage-count` (1–32, default 3) and
+`mirage-enabled` (default `true`; `false` is a succeeding control whose
+`protected.ll` equals `shield-stage.ll`). Additional failure code: `MIRAGE_FAILED`
+(message names Mirage's fixed reason, such as `decoy_symbol_collision` or
+`target_triple_mismatch`). Shield no-op inputs still fail with
+`NO_TRANSFORMATIONS_APPLIED` before Mirage runs. Mirage requires the module's
+target triple to match clang's default target, or to differ from it only in the
+vendor field of a four-part triple (for example rustc's `x86_64-unknown-linux-gnu`
+against Clang's `x86_64-pc-linux-gnu`); the decoys are then compiled for the
+module's exact triple. Any other difference fails with `target_triple_mismatch`.
+Mirage reads and writes at most 64 MiB per module regardless of the adapter's
+`--max-input-bytes`/`--max-output-bytes`; a larger Shield output fails with
+`MIRAGE_FAILED` (`input_too_large`), and no outputs are registered.
+
+Evidence adds one adapter claim with the inserted count, seed, decoy-source digest
+and the chain digests. Decoy names stay in the private `mirage-report.json`.
+Decoys are uncalled and can be identified as unreachable; this backend has no
+established security property. Retention in a final executable depends on the
+consumer's build and is checked separately (see `scripts/native_tests`).
+
 ## Tests
 
 The adapter integration suite needs the existing core/CLI development environment
@@ -156,7 +211,8 @@ package dependencies.
 ```sh
 .venv/bin/python -m pytest protectors/llvm/adapter/tests \
   --shield-plugin /tmp/aegis-shield-build/AegisShield.so \
-  --shield-opt /usr/bin/opt --shield-clang /usr/bin/clang
+  --shield-opt /usr/bin/opt --shield-clang /usr/bin/clang \
+  --shield-llvm-link /usr/bin/llvm-link
 .venv/bin/pytest
 ctest --test-dir /tmp/aegis-shield-build --output-on-failure
 ```
@@ -164,4 +220,12 @@ ctest --test-dir /tmp/aegis-shield-build --output-on-failure
 The suite compiles the checked-in trusted C fixture to IR and submits it through
 the real core orchestrator and CLI. Fault-injection wrappers damage real LLVM
 results or exercise errors/timeouts; they never manufacture protection success.
-See [VALIDATION.md](VALIDATION.md) for the recorded run and limitations.
+`test_shield_mirage_adapter.py` covers the combined backend: chain digests,
+determinism, equality of its Shield stage with standalone `llvm-shield`, disabled
+controls, option validation, missing/mismatched tools, decoy collisions, triple
+mismatch, corrupted Mirage-stage results, byte limits, minimal environment, and
+Core's timeout killing a Mirage-stage descendant. `--shield-llvm-link` defaults to
+`llvm-link` on PATH. See [VALIDATION.md](VALIDATION.md) for the recorded Shield-only
+run and limitations, and
+[NATIVE_INTEGRATION.md](../../../docs/release/NATIVE_INTEGRATION.md) for the
+current combined results.

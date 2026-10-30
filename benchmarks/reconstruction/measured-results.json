@@ -1,0 +1,652 @@
+{
+  "candidate_execution": "unavailable_no_validated_isolation",
+  "commands": [
+    [
+      "/usr/bin/clang",
+      "--version"
+    ],
+    [
+      "/usr/bin/opt",
+      "--version"
+    ],
+    [
+      "/usr/bin/llvm-link",
+      "--version"
+    ],
+    [
+      "/usr/bin/clang",
+      "-dumpmachine"
+    ],
+    [
+      "/usr/bin/clang",
+      "-std=c11",
+      "-O1",
+      "-S",
+      "-emit-llvm",
+      "/tmp/aegis-reconstruction-final-archive-20261030/inputs/target.c",
+      "-o",
+      "/tmp/aegis-reconstruction-final-archive-20261030/baseline.ll"
+    ],
+    [
+      "/usr/bin/opt",
+      "-load-pass-plugin",
+      "/tmp/aegis-reconstruction-final-archive-20261030/Shield.so",
+      "-passes=aegis-shield<seed=42;max-sites=16;report=/tmp/aegis-reconstruction-final-archive-20261030/shield-report.json>,verify",
+      "-S",
+      "/tmp/aegis-reconstruction-final-archive-20261030/baseline.ll",
+      "-o",
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield.ll"
+    ],
+    [
+      "/home/youss/Projects/aegis/.venv/bin/python",
+      "-B",
+      "-m",
+      "aegis_mirage",
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield.ll",
+      "--output-dir",
+      "/tmp/aegis-reconstruction-final-archive-20261030/mirage",
+      "--seed",
+      "42",
+      "--count",
+      "3"
+    ],
+    [
+      "/usr/bin/clang",
+      "-O2",
+      "-ffunction-sections",
+      "-fdata-sections",
+      "-Wl,--gc-sections",
+      "-Wl,--build-id=none",
+      "/tmp/aegis-reconstruction-final-archive-20261030/baseline.ll",
+      "/tmp/aegis-reconstruction-final-archive-20261030/inputs/runner.c",
+      "-o",
+      "/tmp/aegis-reconstruction-final-archive-20261030/baseline.elf"
+    ],
+    [
+      "/usr/bin/clang",
+      "-O2",
+      "-ffunction-sections",
+      "-fdata-sections",
+      "-Wl,--gc-sections",
+      "-Wl,--build-id=none",
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield.ll",
+      "/tmp/aegis-reconstruction-final-archive-20261030/inputs/runner.c",
+      "-o",
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield.elf"
+    ],
+    [
+      "/usr/bin/clang",
+      "-O2",
+      "-ffunction-sections",
+      "-fdata-sections",
+      "-Wl,--gc-sections",
+      "-Wl,--build-id=none",
+      "/tmp/aegis-reconstruction-final-archive-20261030/mirage/module.ll",
+      "/tmp/aegis-reconstruction-final-archive-20261030/inputs/runner.c",
+      "-o",
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield_mirage.elf"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/baseline.elf",
+      "--cases"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/baseline.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield.elf",
+      "--cases"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield_mirage.elf",
+      "--cases"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield_mirage.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/baseline.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield_mirage.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/baseline.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield_mirage.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield_mirage.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/baseline.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield_mirage.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/baseline.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield_mirage.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/baseline.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/baseline.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield_mirage.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/baseline.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield_mirage.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/baseline.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield_mirage.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield_mirage.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/baseline.elf",
+      "--bench",
+      "2000000"
+    ],
+    [
+      "/tmp/aegis-reconstruction-final-archive-20261030/shield.elf",
+      "--bench",
+      "2000000"
+    ]
+  ],
+  "comparison_sha256": "b769899ebc28ccbdc50ca94cf0f82637d0e1786b4759174470062b210da0ba1f",
+  "cpu": "Intel(R) Core(TM) Ultra 9 185H",
+  "evidence": [],
+  "iterations": 2000000,
+  "limitations": [
+    "Single owned fixture, 2 selected uint32 functions, 24 public cases; finite regression evidence only.",
+    "Unpinned shared host; process wall timings include startup, scheduling and frequency noise.",
+    "Symbol and machine-byte observations are structural, not reverse-engineering resistance.",
+    "Shield site counts are plugin claims; final target bytes are independently read from the ELF.",
+    "The owned measurement run performed no Ghidra, REA, model request or candidate compilation/execution.",
+    "Build metadata and evidence files are unsigned; hashes check consistency, not origin."
+  ],
+  "manifest": {
+    "artifacts": [
+      {
+        "build_conditions_sha256": "4ac7749a5b351b1323a7344e76da3a3db00ee15c6eb23387a0b767c4d4988fa2",
+        "file": {
+          "path": "baseline.elf",
+          "sha256": "39904cead0d859e79cb2f1207d566647b5f3842ad424143c5fcae50b6f51f00b",
+          "size_bytes": 16240
+        },
+        "id": "baseline",
+        "ir": {
+          "path": "baseline.ll",
+          "sha256": "bbc152a2b77bbe0f67b4245a9600c74c9a7dbbaa53c9fe319eddd72b4b967a73",
+          "size_bytes": 2581
+        },
+        "mirage_report": null,
+        "protection": {
+          "mirage": null,
+          "shield": null
+        },
+        "shield_report": null,
+        "targets": [
+          "recon_gate",
+          "recon_mix"
+        ],
+        "variant": "baseline"
+      },
+      {
+        "build_conditions_sha256": "4ac7749a5b351b1323a7344e76da3a3db00ee15c6eb23387a0b767c4d4988fa2",
+        "file": {
+          "path": "shield.elf",
+          "sha256": "1607e36c12900af4e34ecc01a4a4ac4fd183a8aabbd12b102424789c8730b1c7",
+          "size_bytes": 16240
+        },
+        "id": "shield",
+        "ir": {
+          "path": "shield.ll",
+          "sha256": "9058e4b8fa45026a9aad63437cc229596452baa971f30176573dc9cf325456a4",
+          "size_bytes": 4305
+        },
+        "mirage_report": null,
+        "protection": {
+          "mirage": null,
+          "shield": {
+            "max_sites": 16,
+            "seed": 42
+          }
+        },
+        "shield_report": {
+          "path": "shield-report.json",
+          "sha256": "97639233eeaf4896b657e386eb04b821f9975b86b9288d6b38294f1d28086ae7",
+          "size_bytes": 1208
+        },
+        "targets": [
+          "recon_gate",
+          "recon_mix"
+        ],
+        "variant": "shield"
+      },
+      {
+        "build_conditions_sha256": "4ac7749a5b351b1323a7344e76da3a3db00ee15c6eb23387a0b767c4d4988fa2",
+        "file": {
+          "path": "shield_mirage.elf",
+          "sha256": "b0e25b4d3793f87b00bde40d831450e93914c28f494686f593d7635417c22176",
+          "size_bytes": 16416
+        },
+        "id": "shield_mirage",
+        "ir": {
+          "path": "mirage/module.ll",
+          "sha256": "512296dff07d4dd5a06986fc7bbc9c4af30eabeb3e2a631bd44bf99b9af1489b",
+          "size_bytes": 6252
+        },
+        "mirage_report": {
+          "path": "mirage/report.json",
+          "sha256": "18e8dcfa5bc819fa1e9836e2ef2b3c07d8bc5082c3a01be78c6e9ce944fc458f",
+          "size_bytes": 1211
+        },
+        "protection": {
+          "mirage": {
+            "count": 3,
+            "seed": 42
+          },
+          "shield": {
+            "max_sites": 16,
+            "seed": 42
+          }
+        },
+        "shield_report": {
+          "path": "shield-report.json",
+          "sha256": "97639233eeaf4896b657e386eb04b821f9975b86b9288d6b38294f1d28086ae7",
+          "size_bytes": 1208
+        },
+        "targets": [
+          "recon_gate",
+          "recon_mix"
+        ],
+        "variant": "shield_mirage"
+      }
+    ],
+    "attacker_controls": {
+      "analysis_tools": {},
+      "capabilities": [
+        "ghidra_decompilation",
+        "rea_reasoning",
+        "static_disassembly"
+      ],
+      "context_policy": "selected_functions_only",
+      "max_attempts": 1,
+      "max_input_tokens": 8192,
+      "max_output_tokens": 4096,
+      "max_spend_microusd": 100000,
+      "max_total_tokens": 16384,
+      "model_identity": "not_scheduled",
+      "oracle_access": "none",
+      "prompt_template_sha256": "dc355db649d27eedd201f1c53250ac184a6409dd44c97d438ea38371e620133d",
+      "random_seed": 42,
+      "request_parameters_sha256": "4c486177b42ae59bc19862082f66f9d38ddc9993520b7d45129e94818b6d8900",
+      "source_access": "none",
+      "system_prompt_sha256": "25510469a002fb57776948d067622d1c8bd5ce04a0e635fa69ee943c3d203116",
+      "time_budget_seconds": 300,
+      "workflow_sha256": "aea49a645357187d4442d4f7e28fdd5c8adaac6f2ccf4c8657814dd72b45b682"
+    },
+    "build_conditions": {
+      "environment": "minimal-v1",
+      "final_flags": [
+        "-O2",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-Wl,--gc-sections",
+        "-Wl,--build-id=none"
+      ],
+      "frontend_flags": [
+        "-std=c11",
+        "-O1",
+        "-S",
+        "-emit-llvm"
+      ],
+      "source_identity": "3cc102468e8936f756f47d6624b9084d424a0cc63c55956328788790793f3201",
+      "target_triple": "x86_64-pc-linux-gnu",
+      "tools": {
+        "clang": {
+          "sha256": "4f86569d7e27c2f2f8ead145099516206214ffd69f8f6ef46f032c1f11140fdb",
+          "version": "22.1.8"
+        },
+        "llvm-link": {
+          "sha256": "7dbdfd2193c73e2eda8ba80e60d38bbe82002fbac0832d703452f23697f4e0b0",
+          "version": "22.1.8"
+        },
+        "mirage-source": {
+          "sha256": "ef231f36e75a860baa396cde7240ae1416b83e902eb7b4432f345cc24741b591",
+          "version": "local-source-snapshot-identity"
+        },
+        "opt": {
+          "sha256": "3660bccfacbb993c5522138c9df1c3c5e16bdcdb73aa58171268fb5c0df7261d",
+          "version": "22.1.8"
+        },
+        "python": {
+          "sha256": "dd65a07e8f535525443d63e2bd6dd10efbf22bf22e0b6d65e634266acc7ac976",
+          "version": "3.14.7"
+        },
+        "shield-plugin": {
+          "sha256": "ed3002eef080e2b178d33d294a0497d5126d0c395b6cb6733ecad6f8a1d2b214",
+          "version": "operator-trusted-build"
+        }
+      }
+    },
+    "comparison_id": "owned-u32-seed42",
+    "created_at": "2026-10-30T12:42:40.964666Z",
+    "oracle": {
+      "path": "inputs/oracle.json",
+      "sha256": "2b333ba0e867b91684d73d19cae732c4443aa6499616a88a75bcf92c3aa0b6b4",
+      "size_bytes": 3712
+    },
+    "schema": "aegis.reconstruction.comparison.v1",
+    "sources": [
+      {
+        "path": "inputs/target.c",
+        "sha256": "55c17fee8d936a0f5123b31f0e737d73bd6b5aedb1b034ec414dec49bb3459d9",
+        "size_bytes": 566
+      },
+      {
+        "path": "inputs/runner.c",
+        "sha256": "eb84f47adeede48b92ef8c83949784e50aabf55a1158bdbee0849fa87b6f521b",
+        "size_bytes": 1125
+      }
+    ],
+    "targets": [
+      "recon_gate",
+      "recon_mix"
+    ],
+    "valid_until": "2026-11-06T12:42:40.964666Z"
+  },
+  "measured_at": "2026-10-30T12:42:42.356567Z",
+  "measurements": {
+    "baseline": {
+      "artifact_sha256": "39904cead0d859e79cb2f1207d566647b5f3842ad424143c5fcae50b6f51f00b",
+      "correctness": {
+        "cases": 24,
+        "observed_output_sha256": "60066fee6b48b97be5c5869ad8eb1658ec942d0078b2e0756c4b16b711156f6b",
+        "oracle_sha256": "2b333ba0e867b91684d73d19cae732c4443aa6499616a88a75bcf92c3aa0b6b4",
+        "status": "passed"
+      },
+      "defined_function_symbols": 4,
+      "dynamic_function_exports": 0,
+      "executable_bytes": 16240,
+      "mirage_retention": {
+        "expected": 0,
+        "observed": 0
+      },
+      "process_wall_seconds": [
+        0.007581224,
+        0.009430553,
+        0.009097481,
+        0.007332342,
+        0.007587802,
+        0.007557676,
+        0.008395878,
+        0.008866335,
+        0.007572359
+      ],
+      "shield_ir_sites_reported": 0,
+      "shield_selected_ir_sites_reported": 0,
+      "target_code_comparison": "identical",
+      "targets": {
+        "recon_gate": {
+          "binding": "global",
+          "bytes": 35,
+          "code_sha256": "37c650bfaa5e2fd438357218f1f9c441c73c36c35704c5d101b46ca39b0405ad",
+          "dynamic_export": false,
+          "visibility": "default"
+        },
+        "recon_mix": {
+          "binding": "global",
+          "bytes": 30,
+          "code_sha256": "3fb378b5ff13eb13dfd65b47b182102ca258db252b8d5f61064d2aaac2ca86b8",
+          "dynamic_export": false,
+          "visibility": "default"
+        }
+      },
+      "text_bytes": 777
+    },
+    "shield": {
+      "artifact_sha256": "1607e36c12900af4e34ecc01a4a4ac4fd183a8aabbd12b102424789c8730b1c7",
+      "correctness": {
+        "cases": 24,
+        "observed_output_sha256": "60066fee6b48b97be5c5869ad8eb1658ec942d0078b2e0756c4b16b711156f6b",
+        "oracle_sha256": "2b333ba0e867b91684d73d19cae732c4443aa6499616a88a75bcf92c3aa0b6b4",
+        "status": "passed"
+      },
+      "defined_function_symbols": 4,
+      "dynamic_function_exports": 0,
+      "executable_bytes": 16240,
+      "mirage_retention": {
+        "expected": 0,
+        "observed": 0
+      },
+      "process_wall_seconds": [
+        0.010224801,
+        0.010371009,
+        0.010373762,
+        0.011296328,
+        0.00978221,
+        0.011160403,
+        0.010955352,
+        0.010222855,
+        0.012597467
+      ],
+      "shield_ir_sites_reported": 5,
+      "shield_selected_ir_sites_reported": 5,
+      "target_code_comparison": "different_not_attributed",
+      "targets": {
+        "recon_gate": {
+          "binding": "global",
+          "bytes": 55,
+          "code_sha256": "da8817e576a99ebe15dac3b58cb50aa3321dd6ad90458353b6750170cb0cdba5",
+          "dynamic_export": false,
+          "visibility": "default"
+        },
+        "recon_mix": {
+          "binding": "global",
+          "bytes": 36,
+          "code_sha256": "433b315735c85f6f83d29a777f8f73940403470a606158f6b72091a263f187d1",
+          "dynamic_export": false,
+          "visibility": "default"
+        }
+      },
+      "text_bytes": 809
+    },
+    "shield_mirage": {
+      "artifact_sha256": "b0e25b4d3793f87b00bde40d831450e93914c28f494686f593d7635417c22176",
+      "correctness": {
+        "cases": 24,
+        "observed_output_sha256": "60066fee6b48b97be5c5869ad8eb1658ec942d0078b2e0756c4b16b711156f6b",
+        "oracle_sha256": "2b333ba0e867b91684d73d19cae732c4443aa6499616a88a75bcf92c3aa0b6b4",
+        "status": "passed"
+      },
+      "defined_function_symbols": 7,
+      "dynamic_function_exports": 0,
+      "executable_bytes": 16416,
+      "mirage_retention": {
+        "expected": 3,
+        "observed": 3
+      },
+      "process_wall_seconds": [
+        0.010070659,
+        0.009715376,
+        0.010009262,
+        0.010984266,
+        0.009912652,
+        0.010430166,
+        0.009535264,
+        0.010411323,
+        0.01115062
+      ],
+      "shield_ir_sites_reported": 5,
+      "shield_selected_ir_sites_reported": 5,
+      "target_code_comparison": "different_not_attributed",
+      "targets": {
+        "recon_gate": {
+          "binding": "global",
+          "bytes": 55,
+          "code_sha256": "da8817e576a99ebe15dac3b58cb50aa3321dd6ad90458353b6750170cb0cdba5",
+          "dynamic_export": false,
+          "visibility": "default"
+        },
+        "recon_mix": {
+          "binding": "global",
+          "bytes": 36,
+          "code_sha256": "433b315735c85f6f83d29a777f8f73940403470a606158f6b72091a263f187d1",
+          "dynamic_export": false,
+          "visibility": "default"
+        }
+      },
+      "text_bytes": 953
+    }
+  },
+  "platform": "Linux-7.2.3-1-cachyos-x86_64-with-glibc2.44",
+  "python": "3.14.7",
+  "sample_order": [
+    [
+      "baseline",
+      "shield",
+      "shield_mirage"
+    ],
+    [
+      "baseline",
+      "shield_mirage",
+      "shield"
+    ],
+    [
+      "shield_mirage",
+      "baseline",
+      "shield"
+    ],
+    [
+      "shield_mirage",
+      "shield",
+      "baseline"
+    ],
+    [
+      "shield",
+      "shield_mirage",
+      "baseline"
+    ],
+    [
+      "shield",
+      "baseline",
+      "shield_mirage"
+    ],
+    [
+      "baseline",
+      "shield",
+      "shield_mirage"
+    ],
+    [
+      "baseline",
+      "shield_mirage",
+      "shield"
+    ],
+    [
+      "shield_mirage",
+      "baseline",
+      "shield"
+    ]
+  ],
+  "samples": 9,
+  "schema": "aegis.reconstruction.measurements.v1",
+  "warmups": 1
+}

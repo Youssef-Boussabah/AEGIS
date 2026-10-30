@@ -1,0 +1,1078 @@
+{
+  "reconstruction": {
+    "$defs": {
+      "GenerationStatus": {
+        "enum": [
+          "context_budget_exhausted",
+          "deadline_exhausted",
+          "generated_but_behaviorally_unscored",
+          "interrupted",
+          "invalid_output",
+          "missing_or_mismatched_provider_evidence",
+          "model_identity_mismatch",
+          "model_verification_authentication",
+          "model_verification_connection_error",
+          "model_verification_deadline_exceeded",
+          "model_verification_failed",
+          "model_verification_forbidden",
+          "model_verification_insufficient_quota",
+          "model_verification_invalid_request",
+          "model_verification_malformed_response",
+          "model_verification_model_not_found",
+          "model_verification_overloaded",
+          "model_verification_oversized_response",
+          "model_verification_rate_limited",
+          "model_verification_server_error",
+          "model_verification_service_unavailable",
+          "model_verification_timeout",
+          "model_verification_unexpected_redirect",
+          "model_verification_unexpected_status",
+          "not_started",
+          "operational_failure",
+          "provider_authentication",
+          "provider_connection_error",
+          "provider_contract_violation",
+          "provider_deadline_exceeded",
+          "provider_forbidden",
+          "provider_insufficient_quota",
+          "provider_invalid_request",
+          "provider_malformed_response",
+          "provider_model_not_found",
+          "provider_overloaded",
+          "provider_oversized_response",
+          "provider_rate_limited",
+          "provider_refusal",
+          "provider_server_error",
+          "provider_service_unavailable",
+          "provider_timeout",
+          "provider_unexpected_redirect",
+          "provider_unexpected_status",
+          "provider_usage_invalid",
+          "provider_usage_overrun",
+          "spend_budget_exhausted",
+          "steps_exhausted",
+          "token_budget_exhausted",
+          "tool_budget_or_allowlist_refused",
+          "tool_or_output_invalid"
+        ],
+        "title": "GenerationStatus",
+        "type": "string"
+      },
+      "PostHocSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "analysis_kind": {
+            "const": "post_hoc_parser_compatibility_review",
+            "title": "Analysis Kind",
+            "type": "string"
+          },
+          "report_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Report Sha256",
+            "type": "string"
+          },
+          "historical_experiment_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Historical Experiment Sha256",
+            "type": "string"
+          },
+          "response_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Response Sha256",
+            "type": "string"
+          },
+          "historical_generation_status": {
+            "const": "invalid_output",
+            "title": "Historical Generation Status",
+            "type": "string"
+          },
+          "historical_completion_parser": {
+            "const": "aegis.lab.completion-parser.v1",
+            "title": "Historical Completion Parser",
+            "type": "string"
+          },
+          "revalidation_completion_parser": {
+            "const": "aegis.lab.nebius-reasoning-text.v2",
+            "title": "Revalidation Completion Parser",
+            "type": "string"
+          },
+          "post_hoc_status": {
+            "enum": [
+              "candidate_text_revalidated_but_behaviorally_unscored",
+              "rejected"
+            ],
+            "title": "Post Hoc Status",
+            "type": "string"
+          },
+          "candidate_envelope_valid": {
+            "title": "Candidate Envelope Valid",
+            "type": "boolean"
+          },
+          "candidate_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Sha256"
+          }
+        },
+        "required": [
+          "analysis_kind",
+          "report_sha256",
+          "historical_experiment_sha256",
+          "response_sha256",
+          "historical_generation_status",
+          "historical_completion_parser",
+          "revalidation_completion_parser",
+          "post_hoc_status",
+          "candidate_envelope_valid",
+          "candidate_sha256"
+        ],
+        "title": "PostHocSummary",
+        "type": "object"
+      },
+      "ReconstructionSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_label": {
+            "enum": [
+              "offline_scripted",
+              "external_provider_record",
+              "synthetic_fixture"
+            ],
+            "title": "Evidence Label",
+            "type": "string"
+          },
+          "trial_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Trial Id",
+            "type": "string"
+          },
+          "pair_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Pair Id",
+            "type": "string"
+          },
+          "artifact_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Artifact Sha256",
+            "type": "string"
+          },
+          "candidate_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Sha256"
+          },
+          "generation_status": {
+            "$ref": "#/$defs/GenerationStatus"
+          },
+          "behavioral_scoring": {
+            "const": "pending_authorized_core_runtime",
+            "title": "Behavioral Scoring",
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "FakeOffline",
+              "Nebius"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "requested_model": {
+            "maxLength": 200,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*(/[A-Za-z0-9][A-Za-z0-9_.-]*)?$",
+            "title": "Requested Model",
+            "type": "string"
+          },
+          "reported_model": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*(/[A-Za-z0-9][A-Za-z0-9_.-]*)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reported Model"
+          },
+          "reported_model_status": {
+            "enum": [
+              "matched",
+              "missing",
+              "mismatch",
+              "mixed"
+            ],
+            "title": "Reported Model Status",
+            "type": "string"
+          },
+          "reported_identity_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reported Identity Sha256"
+          },
+          "steps": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Steps",
+            "type": "integer"
+          },
+          "charged_tokens": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Charged Tokens",
+            "type": "integer"
+          },
+          "known_reported_tokens": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Known Reported Tokens",
+            "type": "integer"
+          },
+          "reported_tokens": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reported Tokens"
+          },
+          "prompt_tokens": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Tokens"
+          },
+          "completion_tokens": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Tokens"
+          },
+          "usage_status": {
+            "enum": [
+              "complete",
+              "partial",
+              "unknown",
+              "no_requests"
+            ],
+            "title": "Usage Status",
+            "type": "string"
+          },
+          "cost_microusd": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Microusd"
+          },
+          "cost_basis": {
+            "enum": [
+              "offline_no_inference_charge",
+              "provider_invoice_unknown"
+            ],
+            "title": "Cost Basis",
+            "type": "string"
+          },
+          "reserved_spend_microusd": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Reserved Spend Microusd",
+            "type": "integer"
+          },
+          "estimated_reported_cost_microusd": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Reported Cost Microusd"
+          },
+          "execution_performed": {
+            "const": false,
+            "title": "Execution Performed",
+            "type": "boolean"
+          },
+          "attack_effectiveness": {
+            "const": "not_established",
+            "title": "Attack Effectiveness",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "enum": [
+                "unsigned_local_evidence_not_provider_attestation",
+                "candidate_text_is_not_reconstruction_success",
+                "no_candidate_compilation_execution_or_behavioral_score",
+                "no_established_protection_effect",
+                "provider_identity_and_usage_are_reported_not_independently_measured",
+                "billing_unknown_reservations_are_not_invoice",
+                "offline_scripted_no_model_inference",
+                "selected_function_only_decoy_inventory_not_disclosed",
+                "variant_build_provenance_operator_declared",
+                "synthetic_fixture_not_live_evidence"
+              ],
+              "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Limitations",
+            "type": "array"
+          },
+          "completion_parser": {
+            "anyOf": [
+              {
+                "enum": [
+                  "aegis.lab.completion-parser.v1",
+                  "aegis.lab.nebius-reasoning-text.v2"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Completion Parser"
+          },
+          "post_hoc_review": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PostHocSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "evidence_label",
+          "trial_id",
+          "pair_id",
+          "artifact_sha256",
+          "candidate_sha256",
+          "generation_status",
+          "behavioral_scoring",
+          "provider",
+          "requested_model",
+          "reported_model",
+          "reported_model_status",
+          "reported_identity_sha256",
+          "steps",
+          "charged_tokens",
+          "known_reported_tokens",
+          "reported_tokens",
+          "prompt_tokens",
+          "completion_tokens",
+          "usage_status",
+          "cost_microusd",
+          "cost_basis",
+          "reserved_spend_microusd",
+          "estimated_reported_cost_microusd",
+          "execution_performed",
+          "attack_effectiveness",
+          "limitations"
+        ],
+        "title": "ReconstructionSummary",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "schema": {
+        "const": "aegis.product.evidence.v2",
+        "title": "Schema",
+        "type": "string"
+      },
+      "kind": {
+        "const": "reconstruction",
+        "title": "Kind",
+        "type": "string"
+      },
+      "source_sha256": {
+        "pattern": "^[0-9a-f]{64}$",
+        "title": "Source Sha256",
+        "type": "string"
+      },
+      "verification": {
+        "const": "offline_hash_bindings_checked",
+        "title": "Verification",
+        "type": "string"
+      },
+      "summary": {
+        "$ref": "#/$defs/ReconstructionSummary"
+      }
+    },
+    "required": [
+      "schema",
+      "kind",
+      "source_sha256",
+      "verification",
+      "summary"
+    ],
+    "title": "ReconstructionEvidence",
+    "type": "object"
+  },
+  "reconstruction_comparison": {
+    "$defs": {
+      "ComparisonRow": {
+        "additionalProperties": false,
+        "properties": {
+          "variant": {
+            "enum": [
+              "baseline",
+              "shield",
+              "mirage"
+            ],
+            "title": "Variant",
+            "type": "string"
+          },
+          "source_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Sha256"
+          },
+          "generation_status": {
+            "$ref": "#/$defs/GenerationStatus"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ReconstructionSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "variant",
+          "source_sha256",
+          "generation_status",
+          "summary"
+        ],
+        "title": "ComparisonRow",
+        "type": "object"
+      },
+      "ComparisonSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_label": {
+            "enum": [
+              "external_provider_record",
+              "synthetic_fixture"
+            ],
+            "title": "Evidence Label",
+            "type": "string"
+          },
+          "order": {
+            "items": {
+              "enum": [
+                "baseline",
+                "shield",
+                "mirage"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Order",
+            "type": "array"
+          },
+          "order_seed": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Order Seed",
+            "type": "integer"
+          },
+          "experiments": {
+            "items": {
+              "$ref": "#/$defs/ComparisonRow"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Experiments",
+            "type": "array"
+          },
+          "reported_identity_comparable": {
+            "title": "Reported Identity Comparable",
+            "type": "boolean"
+          },
+          "behavioral_scoring": {
+            "const": "pending_authorized_core_runtime",
+            "title": "Behavioral Scoring",
+            "type": "string"
+          },
+          "execution_performed": {
+            "const": false,
+            "title": "Execution Performed",
+            "type": "boolean"
+          },
+          "protection_effect": {
+            "const": "not_established",
+            "title": "Protection Effect",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "enum": [
+                "unsigned_local_evidence_not_provider_attestation",
+                "candidate_text_is_not_reconstruction_success",
+                "no_candidate_compilation_execution_or_behavioral_score",
+                "no_established_protection_effect",
+                "provider_identity_and_usage_are_reported_not_independently_measured",
+                "billing_unknown_reservations_are_not_invoice",
+                "offline_scripted_no_model_inference",
+                "selected_function_only_decoy_inventory_not_disclosed",
+                "variant_build_provenance_operator_declared",
+                "synthetic_fixture_not_live_evidence"
+              ],
+              "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Limitations",
+            "type": "array"
+          }
+        },
+        "required": [
+          "evidence_label",
+          "order",
+          "order_seed",
+          "experiments",
+          "reported_identity_comparable",
+          "behavioral_scoring",
+          "execution_performed",
+          "protection_effect",
+          "limitations"
+        ],
+        "title": "ComparisonSummary",
+        "type": "object"
+      },
+      "GenerationStatus": {
+        "enum": [
+          "context_budget_exhausted",
+          "deadline_exhausted",
+          "generated_but_behaviorally_unscored",
+          "interrupted",
+          "invalid_output",
+          "missing_or_mismatched_provider_evidence",
+          "model_identity_mismatch",
+          "model_verification_authentication",
+          "model_verification_connection_error",
+          "model_verification_deadline_exceeded",
+          "model_verification_failed",
+          "model_verification_forbidden",
+          "model_verification_insufficient_quota",
+          "model_verification_invalid_request",
+          "model_verification_malformed_response",
+          "model_verification_model_not_found",
+          "model_verification_overloaded",
+          "model_verification_oversized_response",
+          "model_verification_rate_limited",
+          "model_verification_server_error",
+          "model_verification_service_unavailable",
+          "model_verification_timeout",
+          "model_verification_unexpected_redirect",
+          "model_verification_unexpected_status",
+          "not_started",
+          "operational_failure",
+          "provider_authentication",
+          "provider_connection_error",
+          "provider_contract_violation",
+          "provider_deadline_exceeded",
+          "provider_forbidden",
+          "provider_insufficient_quota",
+          "provider_invalid_request",
+          "provider_malformed_response",
+          "provider_model_not_found",
+          "provider_overloaded",
+          "provider_oversized_response",
+          "provider_rate_limited",
+          "provider_refusal",
+          "provider_server_error",
+          "provider_service_unavailable",
+          "provider_timeout",
+          "provider_unexpected_redirect",
+          "provider_unexpected_status",
+          "provider_usage_invalid",
+          "provider_usage_overrun",
+          "spend_budget_exhausted",
+          "steps_exhausted",
+          "token_budget_exhausted",
+          "tool_budget_or_allowlist_refused",
+          "tool_or_output_invalid"
+        ],
+        "title": "GenerationStatus",
+        "type": "string"
+      },
+      "PostHocSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "analysis_kind": {
+            "const": "post_hoc_parser_compatibility_review",
+            "title": "Analysis Kind",
+            "type": "string"
+          },
+          "report_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Report Sha256",
+            "type": "string"
+          },
+          "historical_experiment_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Historical Experiment Sha256",
+            "type": "string"
+          },
+          "response_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Response Sha256",
+            "type": "string"
+          },
+          "historical_generation_status": {
+            "const": "invalid_output",
+            "title": "Historical Generation Status",
+            "type": "string"
+          },
+          "historical_completion_parser": {
+            "const": "aegis.lab.completion-parser.v1",
+            "title": "Historical Completion Parser",
+            "type": "string"
+          },
+          "revalidation_completion_parser": {
+            "const": "aegis.lab.nebius-reasoning-text.v2",
+            "title": "Revalidation Completion Parser",
+            "type": "string"
+          },
+          "post_hoc_status": {
+            "enum": [
+              "candidate_text_revalidated_but_behaviorally_unscored",
+              "rejected"
+            ],
+            "title": "Post Hoc Status",
+            "type": "string"
+          },
+          "candidate_envelope_valid": {
+            "title": "Candidate Envelope Valid",
+            "type": "boolean"
+          },
+          "candidate_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Sha256"
+          }
+        },
+        "required": [
+          "analysis_kind",
+          "report_sha256",
+          "historical_experiment_sha256",
+          "response_sha256",
+          "historical_generation_status",
+          "historical_completion_parser",
+          "revalidation_completion_parser",
+          "post_hoc_status",
+          "candidate_envelope_valid",
+          "candidate_sha256"
+        ],
+        "title": "PostHocSummary",
+        "type": "object"
+      },
+      "ReconstructionSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_label": {
+            "enum": [
+              "offline_scripted",
+              "external_provider_record",
+              "synthetic_fixture"
+            ],
+            "title": "Evidence Label",
+            "type": "string"
+          },
+          "trial_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Trial Id",
+            "type": "string"
+          },
+          "pair_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Pair Id",
+            "type": "string"
+          },
+          "artifact_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Artifact Sha256",
+            "type": "string"
+          },
+          "candidate_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Sha256"
+          },
+          "generation_status": {
+            "$ref": "#/$defs/GenerationStatus"
+          },
+          "behavioral_scoring": {
+            "const": "pending_authorized_core_runtime",
+            "title": "Behavioral Scoring",
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "FakeOffline",
+              "Nebius"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "requested_model": {
+            "maxLength": 200,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*(/[A-Za-z0-9][A-Za-z0-9_.-]*)?$",
+            "title": "Requested Model",
+            "type": "string"
+          },
+          "reported_model": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*(/[A-Za-z0-9][A-Za-z0-9_.-]*)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reported Model"
+          },
+          "reported_model_status": {
+            "enum": [
+              "matched",
+              "missing",
+              "mismatch",
+              "mixed"
+            ],
+            "title": "Reported Model Status",
+            "type": "string"
+          },
+          "reported_identity_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reported Identity Sha256"
+          },
+          "steps": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Steps",
+            "type": "integer"
+          },
+          "charged_tokens": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Charged Tokens",
+            "type": "integer"
+          },
+          "known_reported_tokens": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Known Reported Tokens",
+            "type": "integer"
+          },
+          "reported_tokens": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reported Tokens"
+          },
+          "prompt_tokens": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Tokens"
+          },
+          "completion_tokens": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Tokens"
+          },
+          "usage_status": {
+            "enum": [
+              "complete",
+              "partial",
+              "unknown",
+              "no_requests"
+            ],
+            "title": "Usage Status",
+            "type": "string"
+          },
+          "cost_microusd": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Microusd"
+          },
+          "cost_basis": {
+            "enum": [
+              "offline_no_inference_charge",
+              "provider_invoice_unknown"
+            ],
+            "title": "Cost Basis",
+            "type": "string"
+          },
+          "reserved_spend_microusd": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Reserved Spend Microusd",
+            "type": "integer"
+          },
+          "estimated_reported_cost_microusd": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Reported Cost Microusd"
+          },
+          "execution_performed": {
+            "const": false,
+            "title": "Execution Performed",
+            "type": "boolean"
+          },
+          "attack_effectiveness": {
+            "const": "not_established",
+            "title": "Attack Effectiveness",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "enum": [
+                "unsigned_local_evidence_not_provider_attestation",
+                "candidate_text_is_not_reconstruction_success",
+                "no_candidate_compilation_execution_or_behavioral_score",
+                "no_established_protection_effect",
+                "provider_identity_and_usage_are_reported_not_independently_measured",
+                "billing_unknown_reservations_are_not_invoice",
+                "offline_scripted_no_model_inference",
+                "selected_function_only_decoy_inventory_not_disclosed",
+                "variant_build_provenance_operator_declared",
+                "synthetic_fixture_not_live_evidence"
+              ],
+              "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Limitations",
+            "type": "array"
+          },
+          "completion_parser": {
+            "anyOf": [
+              {
+                "enum": [
+                  "aegis.lab.completion-parser.v1",
+                  "aegis.lab.nebius-reasoning-text.v2"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Completion Parser"
+          },
+          "post_hoc_review": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PostHocSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "evidence_label",
+          "trial_id",
+          "pair_id",
+          "artifact_sha256",
+          "candidate_sha256",
+          "generation_status",
+          "behavioral_scoring",
+          "provider",
+          "requested_model",
+          "reported_model",
+          "reported_model_status",
+          "reported_identity_sha256",
+          "steps",
+          "charged_tokens",
+          "known_reported_tokens",
+          "reported_tokens",
+          "prompt_tokens",
+          "completion_tokens",
+          "usage_status",
+          "cost_microusd",
+          "cost_basis",
+          "reserved_spend_microusd",
+          "estimated_reported_cost_microusd",
+          "execution_performed",
+          "attack_effectiveness",
+          "limitations"
+        ],
+        "title": "ReconstructionSummary",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "schema": {
+        "const": "aegis.product.evidence.v2",
+        "title": "Schema",
+        "type": "string"
+      },
+      "kind": {
+        "const": "reconstruction_comparison",
+        "title": "Kind",
+        "type": "string"
+      },
+      "source_sha256": {
+        "pattern": "^[0-9a-f]{64}$",
+        "title": "Source Sha256",
+        "type": "string"
+      },
+      "verification": {
+        "const": "offline_hash_bindings_checked",
+        "title": "Verification",
+        "type": "string"
+      },
+      "summary": {
+        "$ref": "#/$defs/ComparisonSummary"
+      }
+    },
+    "required": [
+      "schema",
+      "kind",
+      "source_sha256",
+      "verification",
+      "summary"
+    ],
+    "title": "ComparisonEvidence",
+    "type": "object"
+  }
+}

@@ -43,7 +43,7 @@ from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .manifest import _check_text
 from .provider import canonical_endpoint
@@ -388,6 +388,13 @@ class InferenceApproval(BaseModel):
     provider_retention_reviewed: Literal[True]
     continuation_scope: Literal["bound_evidence_and_model_replies_only"] = "bound_evidence_and_model_replies_only"
     request_store: Literal[False] = False
+
+    @field_validator("operator_approved", "provider_retention_reviewed", "request_store", mode="before")
+    @classmethod
+    def exact_review_booleans(cls, value):
+        if type(value) is not bool:
+            raise ValueError("strict_boolean_required")
+        return value
 
     @model_validator(mode="after")
     def _scope(self):

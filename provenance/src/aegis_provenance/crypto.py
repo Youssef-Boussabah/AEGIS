@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import os
 from pathlib import Path
 from typing import NamedTuple
 
@@ -121,19 +122,32 @@ def save_keypair_files(
     public_key_path: Path,
     password: str | None = None,
 ) -> None:
-    """Save keypair to files with restrictive permissions where supported."""
+    """Save keypair to files; the private key is created 0600 from the start.
+
+    The private key file is never world- or group-readable, not even briefly:
+    it is opened with mode 0600 (an existing file is replaced via a private
+    temporary file) instead of being written first and chmod-ed afterwards.
+    """
     private_key_path.parent.mkdir(parents=True, exist_ok=True)
     public_key_path.parent.mkdir(parents=True, exist_ok=True)
 
     priv_pem = export_private_key_pem(keypair.private_key, password=password)
     pub_pem = export_public_key_pem(keypair.public_key)
 
-    private_key_path.write_text(priv_pem, encoding="utf-8")
+    _write_private(private_key_path, priv_pem.encode("utf-8"))
     public_key_path.write_text(pub_pem, encoding="utf-8")
 
-    # On POSIX systems set 0600 on the private key
+
+def _write_private(path: Path, data: bytes) -> None:
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
     try:
-        private_key_path.chmod(0o600)
-    except (OSError, NotImplementedError):
-        pass
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 

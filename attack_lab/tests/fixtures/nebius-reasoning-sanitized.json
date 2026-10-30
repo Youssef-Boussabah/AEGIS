@@ -1,0 +1,47 @@
+{
+  "id": "synthetic-nebius-shape-fixture-not-live-evidence",
+  "object": "chat.completion",
+  "created": 123,
+  "model": "nvidia/Nemotron-3_5-Lightning",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"schema\":\"aegis.lab.candidate.v1\",\"language\":\"c\",\"interface\":\"int fixture_add(int a, int b)\",\"source\":\"/* synthetic fixture, never executed */ int fixture_add(int a, int b) { return a + b; }\"}",
+        "refusal": null,
+        "annotations": null,
+        "audio": null,
+        "function_call": null,
+        "tool_calls": null,
+        "reasoning": "Synthetic placeholder; no private reasoning retained.",
+        "reasoning_content": "Synthetic placeholder; no private reasoning retained."
+      },
+      "logprobs": null,
+      "finish_reason": "stop",
+      "stop_reason": null,
+      "token_ids": null
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1786,
+    "completion_tokens": 8039,
+    "total_tokens": 9825,
+    "completion_tokens_details": {
+      "accepted_prediction_tokens": null,
+      "audio_tokens": null,
+      "reasoning_tokens": 0,
+      "rejected_prediction_tokens": null
+    },
+    "prompt_cache_hit_tokens": 0,
+    "prompt_cache_miss_tokens": 1786,
+    "prompt_tokens_details": null
+  },
+  "system_fingerprint": null,
+  "service_tier": null,
+  "moderation": null,
+  "prompt_logprobs": null,
+  "prompt_token_ids": null,
+  "ec_transfer_params": null,
+  "kv_transfer_params": null
+}

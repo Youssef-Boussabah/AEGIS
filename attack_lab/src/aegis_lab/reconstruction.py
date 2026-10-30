@@ -306,9 +306,9 @@ def default_max_output_tokens(max_model_tokens: int) -> int:
 
 
 def sampling_configuration_document(*, max_output_tokens: int, top_p: float | None,
-                                    stop: tuple[str, ...] = ()) -> dict[str, Any]:
+                                    stop: tuple[str, ...] = (), enable_thinking: bool | None = None) -> dict[str, Any]:
     """Every request parameter except model, temperature and seed (manifest field contract)."""
-    return {
+    result = {
         "schema": SAMPLING_CONFIGURATION_SCHEMA,
         "max_output_tokens": max_output_tokens,
         "top_p": top_p,
@@ -316,12 +316,17 @@ def sampling_configuration_document(*, max_output_tokens: int, top_p: float | No
         "stop": list(stop),
         "stream": False,
     }
+    if enable_thinking is not None:
+        if type(enable_thinking) is not bool:
+            raise ValueError("thinking_control_requires_boolean")
+        result["chat_template_kwargs"] = {"enable_thinking": enable_thinking}
+    return result
 
 
 def sampling_configuration_sha256(*, max_output_tokens: int, top_p: float | None,
-                                  stop: tuple[str, ...] = ()) -> str:
+                                  stop: tuple[str, ...] = (), enable_thinking: bool | None = None) -> str:
     return canonical_sha256(sampling_configuration_document(max_output_tokens=max_output_tokens, top_p=top_p,
-                                                            stop=stop))
+                                                            stop=stop, enable_thinking=enable_thinking))
 
 
 def workflow_configuration_document(*, language: str, blinded: bool) -> dict[str, Any]:
@@ -358,7 +363,8 @@ def workflow_configuration_sha256(*, language: str, blinded: bool) -> str:
 
 
 def planned_attack_digests(*, max_model_tokens: int, language: str = "c", blinded: bool = False,
-                           max_output_tokens: int | None = None, top_p: float | None = None) -> dict[str, str]:
+                           max_output_tokens: int | None = None, top_p: float | None = None,
+                           enable_thinking: bool | None = None) -> dict[str, str]:
     """The three ``attack`` digests a manifest must declare for this pipeline.
 
     ``blinded`` is the *effective* value: true when the run is blinded or the
@@ -367,7 +373,8 @@ def planned_attack_digests(*, max_model_tokens: int, language: str = "c", blinde
     output = default_max_output_tokens(max_model_tokens) if max_output_tokens is None else max_output_tokens
     return {
         "prompt_sha256": PROMPT_TEMPLATE_SHA256,
-        "sampling_configuration_sha256": sampling_configuration_sha256(max_output_tokens=output, top_p=top_p),
+        "sampling_configuration_sha256": sampling_configuration_sha256(max_output_tokens=output, top_p=top_p,
+                                                                       enable_thinking=enable_thinking),
         "workflow_configuration_sha256": workflow_configuration_sha256(language=language, blinded=blinded),
     }
 
@@ -536,7 +543,8 @@ def _withheld_names(manifest: TrialManifest, function: FunctionEvidence) -> froz
 
 def _verify_declared_configuration(manifest: TrialManifest, *, language: str, blinded: bool,
                                    max_output_tokens: int, top_p: float | None,
-                                   temperature: float | None, seed: int | None) -> None:
+                                   temperature: float | None, seed: int | None,
+                                   enable_thinking: bool | None = None) -> None:
     attack = manifest.attack
     problems: list[str] = []
     if attack.workflow != "ghidra_model":
@@ -548,7 +556,7 @@ def _verify_declared_configuration(manifest: TrialManifest, *, language: str, bl
     if attack.prompt_sha256 != PROMPT_TEMPLATE_SHA256:
         problems.append("prompt_template_mismatch")
     if attack.sampling_configuration_sha256 != sampling_configuration_sha256(
-            max_output_tokens=max_output_tokens, top_p=top_p):
+            max_output_tokens=max_output_tokens, top_p=top_p, enable_thinking=enable_thinking):
         problems.append("sampling_configuration_mismatch")
     if attack.workflow_configuration_sha256 != workflow_configuration_sha256(language=language, blinded=blinded):
         problems.append("workflow_configuration_mismatch")
@@ -566,6 +574,7 @@ def prepare_reconstruction(
     temperature: float | None = None,
     top_p: float | None = None,
     seed: int | None = None,
+    enable_thinking: bool | None = None,
 ) -> PreparedReconstruction:
     """Bind a Ghidra report to its manifest and build a bounded, policy-checked request.
 
@@ -599,7 +608,8 @@ def prepare_reconstruction(
 
     effective_blinded = bool(blinded) or not manifest.access.access_to_symbols
     _verify_declared_configuration(manifest, language=language, blinded=effective_blinded,
-                                   max_output_tokens=output, top_p=top_p, temperature=temperature, seed=seed)
+                                   max_output_tokens=output, top_p=top_p, temperature=temperature, seed=seed,
+                                   enable_thinking=enable_thinking)
 
     withheld = _withheld_names(manifest, function) if effective_blinded else frozenset()
     label = BLINDED_FUNCTION_PLACEHOLDER if effective_blinded else manifest.target.function
@@ -659,6 +669,7 @@ def prepare_reconstruction(
         temperature=manifest.attack.temperature,
         top_p=top_p,
         seed=manifest.attack.sampling_seed,
+        enable_thinking=enable_thinking,
     )
     bound = prompt_token_bound(messages)
     if bound >= budget.max_model_tokens:
@@ -717,6 +728,7 @@ def verify_prepared(prepared: PreparedReconstruction) -> None:
         fresh = prepare_reconstruction(
             prepared.manifest, prepared.report_bytes, language=prepared.language, blinded=prepared.blinded,
             max_output_tokens=prepared.request.max_output_tokens, top_p=prepared.request.top_p,
+            enable_thinking=prepared.request.enable_thinking,
         )
     except (EvidenceBindingError, ReportInvariantError, LoadError, ValidationError, ReconstructionInputError):
         raise ConfigurationError(("evidence_binding_mismatch",)) from None

@@ -117,3 +117,20 @@ def test_evaluate_watermark_constraint():
     # With watermark
     res2 = evaluate_action(policy, PermissionAction.EXECUTE, watermark_present=True)
     assert res2.permitted is True
+
+
+def test_restricted_policy_fails_closed_without_caller_or_environment(tmp_path: Path):
+    f = tmp_path / "kernel.bin"
+    f.write_bytes(b"content")
+    sha = _compute_sha256(f)
+    allow = [PolicyPermission(action=PermissionAction.ANALYZE, allowed=True)]
+
+    callers = create_test_policy(sha, allow, PolicyConstraint(allowed_caller_ids=["tool-a"]))
+    missing = evaluate_action(callers, PermissionAction.ANALYZE, artifact_path=f)
+    assert not missing.permitted and "none was supplied" in missing.reason
+    assert evaluate_action(callers, PermissionAction.ANALYZE, caller_id="tool-a").permitted
+    assert not evaluate_action(callers, PermissionAction.ANALYZE, caller_id="tool-b").permitted
+
+    envs = create_test_policy(sha, allow, PolicyConstraint(environments=["ci"]))
+    assert not evaluate_action(envs, PermissionAction.ANALYZE).permitted
+    assert evaluate_action(envs, PermissionAction.ANALYZE, environment="ci").permitted

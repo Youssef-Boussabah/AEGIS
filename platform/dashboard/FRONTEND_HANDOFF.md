@@ -1,30 +1,30 @@
-# Frontend integration handoff — product release branch
+# Final dashboard handoff
 
-The earlier frontend handoff’s pending successful-LLVM-job gap is closed on this
-branch. The dashboard uses the existing API and real LLVM Shield adapter through
-`scripts/product.py`. The real Chromium smoke verifies accepted job → succeeded
-status → displayed report → downloaded report → independently matching output
-hashes. Invalid IR remains failed and has no registered output artifacts.
-See [release validation](../../docs/release/VALIDATION.md) for exact runs.
+The workspace now connects Protect → Verify → Evaluate → Results while retaining
+the existing pages and real job lifecycle. Both supported protection profiles use
+actual health registrations and documented adapter options. Artifact downloads
+check the exact bytes in the browser after the API's own integrity/policy checks.
 
-Removed simulated security events, threat charts, license totals, web-decoy hits
-and scripted “AI analyst” interactions. Navigation now leads to real protection
-jobs and local research evidence. The interface labels Core observations, adapter
-claims, unavailable telemetry, pending behavioral scoring and unmeasured resistance.
-Health checks register readiness only; plugin viability is checked by actual jobs.
+Provenance and Sentinel use [Agent 1's contract](../../docs/release/FINAL_API_CONTRACT.md).
+The UI distinguishes verified/unsigned/failed signatures, configured/unconfigured
+services, invalid policies, current permitted/denied decisions and request failures.
+Results retain the timestamp of the last verification, never a permanent trust claim.
 
-The built dashboard and both services bind loopback. Health and API requests share
-a proxy. Optional bearer authentication and job-ID reload work with existing
-contracts; no backend changes were made. Research imports are local, digest-checked
-and allowlisted after the existing Lab/Mirage/ImageLab verification paths. Private
-request or hidden-suite data is not displayed or uploaded.
+The Lab uses [Agent 2's public contract](../../attack_lab/docs/public-summary.md),
+with an exact schema snapshot, recursive extra-field rejection and semantic checks.
+Provider identity and usage are reported observations. Billing remains unknown;
+reservations and estimates are labeled separately. Synthetic fixtures are visible
+as synthetic. Comparisons never claim behavioral reconstruction or protection.
 
-Remaining limits: no list/download/research endpoints, no live telemetry, no real
-AI analysis, no live Nebius/NVIDIA inference evidence, no merged Core scoring
-runtime, and no established Shield/Mirage security property. Core architecture and
-project-status notes remain Agent 1’s integration responsibility.
+All source edits for this assignment are within `platform/dashboard/`. Other agents'
+existing edits were preserved. No commit, push, reset, installation or live provider
+request was performed. Root architecture and release synchronization remain with
+Agent 1, as required by this assignment's exclusive ownership.
 
-See [dashboard README](README.md), [runbook](../../docs/release/RUNBOOK.md),
-[API handoff](../../docs/release/AGENT1-CONTRACT.md) and
-[submission checklist](../../docs/release/SUBMISSION.md). No commit, push, deployment
-or public release has been performed.
+See [README](README.md) for setup/contracts and [validation](VALIDATION.md) for exact
+commands, results, limitations and changed files.
+
+The optional post-hoc parser review extension is also consumed through the public
+schema. Original generation/candidate states stay unchanged; revalidation has its
+own parser, status, envelope validity and safe hashes. Reviews remain text-only
+and behaviorally unscored. Private nested review data fails import.

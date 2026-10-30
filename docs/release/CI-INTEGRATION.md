@@ -12,30 +12,32 @@ both variants, compares outputs and verifies retained symbols after O2/linker GC
 The original Mirage tests hard-code `/usr/bin` tools; installing LLVM 22 on a
 hosted Ubuntu runner does not guarantee those paths refer to LLVM 22. The new
 smoke therefore uses the transformer's supported explicit tool arguments from
-PATH. The original **11-test Mirage suite is still required locally** and passed
+PATH. The current **12-test Mirage suite is still required locally** and passed
 on the validation host; it is not claimed as run in the hosted workflow. A future
 owner change can make that suite tool-configurable without altering behavior.
 
-The offline Lab job intentionally installs only Lab, not an older same-version
-Core pretending to satisfy the scoring dependency. It cannot validate Phase 4.
-The merged Lab profile reports skipped cases as NOT RUN. The product branch does
-not copy Core from another worktree or depend on uncommitted owner snapshots.
+The hosted offline Lab job intentionally installs only Lab. It cannot certify
+Core integration or real Ghidra execution; skipped tests are NOT RUN. Matching
+Core execution contracts are now present in this checkout. Local strict Lab
+integration has passed in earlier handoffs, and the final gate can run it with:
 
-## Enable this job only after Core is merged
+```sh
+AEGIS_GHIDRA_HEADLESS=/absolute/ghidra/support/analyzeHeadless \
+PLAYWRIGHT_BROWSERS_PATH=/tmp/aegis-product-browsers \
+  .venv/bin/python scripts/product.py verify --lab-profile integration --workspace /tmp/NEW_BUILT_WORKSPACE
+```
 
-Prerequisites, owned jointly by Agent 1 and Lab:
+This profile requires real Ghidra and refuses skipped tests. It does not authorize
+an actual generated-candidate runtime or live inference. See the latest exact
+results in [FINAL_RELEASE_REPORT.md](FINAL_RELEASE_REPORT.md).
 
-1. Merge the matching `aegis_core.lab_execution` and `aegis_core.lab_ledger`
-   contracts and their tests, with package setup from the same checkout.
-2. Resolve any contract drift in Lab against that exact Core. Package version
-   `0.1.0` alone is insufficient evidence of compatibility.
-3. Provision a pinned Ghidra 12.1.4 distribution/JDK, cc and nm on a runner that
-   permits the trusted Unix-socket fixture and Ghidra subprocesses. Record its
-   distribution hash and toolchain in the integration PR.
-4. Enable the strict profile below as a required check. It must fail for missing
-   Core, Ghidra/compiler/nm, collection failures, errors or **any skipped test**.
-   A real-Ghidra timeout test can skip on fast hosts today; resolve its portability
-   with the Lab owner before requiring green. Do not relax the skip gate.
+## Hosted strict job remains planned
+
+The repository workflow has not been run by this release task. Before making a
+hosted strict job required, provision pinned Ghidra 12.1.4/JDK, cc and nm on a
+runner permitting local Unix-socket fixtures and Ghidra subprocesses. Record the
+distribution hash and verify against a stable reviewed commit. Keep the current
+fail-on-any-skip policy. Default/offline coverage is not an equivalent check.
 
 Proposed job body (documentation only; not enabled prematurely):
 

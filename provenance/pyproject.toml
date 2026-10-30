@@ -1,14 +1,17 @@
 [build-system]
-requires = ["hatchling>=1.24"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "aegis-provenance"
 version = "0.1.0"
 description = "AEGIS offline signed provenance manifest, public-key verification, and watermark research."
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "aegis-core",
+    "aegis-sentinel",
     "pydantic>=2.7,<3",
     "cryptography>=42.0.0",
 ]

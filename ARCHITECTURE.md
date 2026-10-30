@@ -6,8 +6,8 @@ disagree, the code is right and this document has a bug.
 ## Four active engineering streams (28 October 2026)
 
 - **A — Core Platform, Shield & Integration:** `core/`, `platform/api/`, `platform/cli/`, `protectors/llvm/` including `adapter/`, `demo/image_processor/`, governance and CI. See issue #9.
-- **B — Adversarial AI Lab & Mirage:** `attack_lab/` (partial; see attack_lab/README.md) and `protectors/mirage/` (planned), issue #10.
-- **C — Frontend & Product Experience:** `platform/dashboard/` (planned), issue #11.
+- **B — Adversarial AI Lab & Mirage:** `attack_lab/` (partial; see attack_lab/README.md) and `protectors/mirage/` (implemented transformer; reaches Core only through the combined `llvm-shield-mirage` adapter), issue #10.
+- **C — Frontend & Product Experience:** `platform/dashboard/` (implemented; existing API only), issue #11.
 - **D — Signature, Sentinel & Verification:** `provenance/` (implemented) and `sentinel/` (implemented), issue #12. Offline signed provenance manifests, public-key verification, Sentinel rights policies, and watermark research.
 
 Issue #7 separately coordinates cross-ecosystem tests using PhotoCraft, the reVC branch of re-GTA, and Mattermost. ImageLab remains the controlled internal regression target. Protectors must never use benchmark names or target-specific answer logic. See [ownership and dependencies](docs/TEAM_WORKSTREAMS.md).
@@ -55,13 +55,13 @@ Issue #7 separately coordinates cross-ecosystem tests using PhotoCraft, the reVC
 | `platform/api/` | `aegis-api` / `aegis_api` | Python, FastAPI + uvicorn | implemented |
 | `platform/cli/` | `aegis-cli` / `aegis_cli` | Python, stdlib `argparse` | implemented |
 | `protectors/llvm/` | AEGIS Shield (`AegisShield.so`) | C++20 LLVM pass plugin, CMake, LLVM ≥22 | prototype; connected through adapter below |
-| `protectors/llvm/adapter/` | LLVM Shield adapter | Python ≥3.11, POSIX, stdlib | implemented; textual IR, LLVM 22, explicit registration |
+| `protectors/llvm/adapter/` | LLVM Shield adapter; Shield + Mirage adapter | Python ≥3.11, POSIX, stdlib | implemented; textual IR, LLVM 22, explicit registration of `llvm-shield` and `llvm-shield-mirage` |
 | `demo/image_processor/` | ImageLab controlled application/harness | C++20, CMake, Python stdlib tests | implemented; native/IR baseline/Shield/external variants |
-| `attack_lab/` | `aegis-lab` / `aegis_lab` | Python ≥3.11, pydantic; Java Ghidra post-script | partial: v2 trial manifests and pair validation; bounded local Ghidra evidence export; unsigned evidence binding. No attack execution, Core adapter or model calls. |
-| `protectors/mirage/` | Mirage decoys | to be decided | planned |
-| `provenance/` | `aegis-provenance` / `aegis_provenance` | Python ≥3.11, hatchling, cryptography | implemented; RFC 8785 canonical JSON, Ed25519 offline signing/verification, watermark embedding & detector |
-| `sentinel/` | `aegis-sentinel` / `aegis_sentinel` | Python ≥3.11, hatchling, pydantic | implemented; versioned machine-readable rights and usage policies, validation and cooperating tool evaluation |
-| `platform/dashboard/` | Developer frontend | to be decided | planned |
+| `attack_lab/` | `aegis-lab` / `aegis_lab` | Python ≥3.11, pydantic; Java Ghidra post-script | partial: v2 trial manifests and pair validation; bounded local Ghidra evidence export; unsigned evidence binding; offline scripted reconstruction; approval-gated Nebius transport; one operator-supplied NVIDIA response archive verified offline, with a separate post-hoc candidate-envelope review (behaviorally unscored; provider origin/weights/billing not independently attested); scoring via Core candidate-execution grants, whose runtime refuses every request in this revision. No Core protection adapter. |
+| `protectors/mirage/` | `aegis-mirage` / `aegis_mirage` | Python ≥3.11 stdlib; drives LLVM 22 `clang`/`llvm-link`/`opt` | implemented: retained unreachable arithmetic decoys in LLVM 22 IR / ELF. Standalone CLI, and the second stage of the `llvm-shield-mirage` backend (adapter in `protectors/llvm/adapter/`); no Mirage-only backend; no measured attack resistance |
+| `provenance/` | `aegis-provenance` / `aegis_provenance` | Python ≥3.11, hatchling, cryptography | implemented; RFC 8785 canonical JSON, Ed25519 offline signing/verification, watermark embedding & detector; `aegis_provenance.jobs` signs Core job outputs with an operator-configured key (§8a) |
+| `sentinel/` | `aegis-sentinel` / `aegis_sentinel` | Python ≥3.11, hatchling, pydantic | implemented; versioned machine-readable rights and usage policies, validation and cooperating tool evaluation; attached to Core job outputs when configured (§8a) |
+| `platform/dashboard/` | Developer frontend | React 18, TypeScript, Vite 6; Playwright browser tests | implemented: uses only `/healthz` and `/v1/jobs`; research summaries are verified and kept in the browser, never uploaded |
 
 The Python packages are named `aegis_*` because a top-level package called
 `platform` would hide the standard-library `platform` module.
@@ -73,9 +73,15 @@ These rules reflect the current imports and must stay true:
 1. `aegis_core` depends only on `pydantic` (v2) and the standard library. It
    does not import `aegis_api`, `aegis_cli`, FastAPI, or anything under
    `protectors/`.
-2. `aegis_api` and `aegis_cli` depend on `aegis_core` and never on each other.
-   They hold no business logic of their own: validation, storage and execution
-   live in `aegis_core` (`Orchestrator`, `check_health`).
+2. `aegis_api` and `aegis_cli` depend on `aegis_core`, `aegis_provenance` and
+   `aegis_sentinel`, and never on each other. They hold no business logic of
+   their own: validation, storage and execution live in `aegis_core`
+   (`Orchestrator`, `check_health`); signing, verification and policy handling
+   live in `aegis_provenance.jobs` and `aegis_sentinel`.
+2a. `aegis_provenance` depends on `aegis_core` and `aegis_sentinel`;
+   `aegis_sentinel` depends on `aegis_core` only. Core reaches them solely
+   through the generic `Orchestrator.post_success_hooks` list, so rule 1 holds:
+   Core never imports `cryptography`, Provenance or Sentinel.
 3. Protection backends are **never imported or linked** by the Python
    packages. The only coupling is the subprocess adapter protocol (§4) plus the
    JSON files it exchanges.
@@ -149,7 +155,8 @@ In summary:
 - All artifact hashes (SHA-256) are computed by the orchestrator, not taken
   from the adapter.
 
-The real LLVM Shield adapter is described in §7. The other adapter,
+The real LLVM Shield adapter is described in §7, including the combined
+`llvm-shield-mirage` adapter (§7, last paragraph). The other adapter,
 `aegis_core.testing.fake_adapter`, is a protocol test double that applies **no**
 protection and must never be registered as a real backend.
 
@@ -168,6 +175,8 @@ protection and must never be registered as a real backend.
    - set `running` and validate the policy again;
    - write `request.json` and invoke the adapter;
    - verify the result and hash the outputs;
+   - for a succeeded job, call each post-success hook (output signing and
+     Sentinel policies, §8a). A hook exception is logged and never fails the job;
    - write `report.json`, then the terminal `job.json`.
 3. **API**: `POST /v1/jobs` submits and then runs the job as a FastAPI
    background task in the same process. **CLI**: `aegis protect` submits and
@@ -175,7 +184,9 @@ protection and must never be registered as a real backend.
 
 All JSON writes are atomic (temp file, `fsync`, `os.replace`). The store root
 defaults to `.aegis/` next to `aegis.toml`. There is no database, queue or
-object storage. Candidate execution adds `<store>/lab-grants/<grant_id>/`
+object storage. When signing or Sentinel is configured, succeeded jobs also get
+`<store>/jobs/<job_id>/attestation/` (0700; files 0600): `attestation.json`,
+`<artifact_id>.manifest.json` and `<artifact_id>.policy.json` per output. Candidate execution adds `<store>/lab-grants/<grant_id>/`
 (`ledger.json` plus a `flock` lock file, 0700/0600): grant-wide usage, see §7a.
 
 ## 6. Security requirements
@@ -244,7 +255,39 @@ expansions and verified IR, with **no established security property**. Private
 partial files may remain after a hard timeout or failed publication; failed jobs
 never register them as outputs.
 
+**Shield + Mirage (`llvm-shield-mirage`).** `aegis_shield_mirage_adapter.py` reuses the
+Shield adapter's validation, Shield stage, runner and limits, then runs Mirage on
+exactly the verified Shield output with Mirage's LLVM tools kept in Core's process
+group (`transform(runner=…)`), verifies the final module without the plugin, and
+publishes `protected.ll`, `shield-stage.ll`, `shield-report.json` and
+`mirage-report.json`. Mirage's report must bind the Shield output's and final
+module's SHA-256, which Core also records. Additional options `mirage-seed`,
+`mirage-count`, `mirage-enabled`; additional adapter code `MIRAGE_FAILED`. Mirage
+accepts a module whose four-part target triple equals Clang's default or differs only
+in the vendor field (rustc's `x86_64-unknown-linux-gnu` vs Clang's
+`x86_64-pc-linux-gnu`), compiling the decoys for the module's exact triple; any
+other triple fails with `target_triple_mismatch`. No contract, model or storage change. Contract:
+[docs/release/NATIVE_BACKEND_CONTRACT.md](docs/release/NATIVE_BACKEND_CONTRACT.md).
+No established security property.
+
 Lab tools do not implement or bypass Core's two attack-lab authorization gates. Core's side of linking Lab execution to `AttackLabAuthorization` is the candidate execution grant (§7a); the Lab side is pending Role B.
+
+The operator-facing `scripts/live_evaluate.py` wrapper binds an owned ImageLab
+Core protection job to fresh native builds, Ghidra reports and the production
+Lab inference workflow. Its `run` command accepts an **inference-only** approval:
+it may verify/project the archive and record a candidate digest, but must never
+automatically invoke the separate `score` command, compile a returned candidate
+or execute it. The binding explicitly records candidate scoring as `not_run`.
+The standalone experimental scorer is not an approved Core execution runtime;
+an inference approval does not establish candidate execution authorization or
+validated isolation.
+
+Nebius requests may explicitly opt into `enable_thinking: false`, serialized as
+`chat_template_kwargs.enable_thinking=false`. It is bound into the prepared
+sampling/request digest, exact operator review and archival replay. Omission
+preserves the historical request bytes and provider default; verification must
+never retrofit this option into an existing record. The wrapper forwards the
+explicit `--disable-thinking` option through preparation, preflight and run.
 
 ## 7a. Untrusted candidate execution (Phase 4; ADR 0004 **proposed**)
 
@@ -306,6 +349,40 @@ Lab-declared digests (pair, hidden suite, sandbox policy, scorer) are bound and 
 3. **Advisory Notice vs Enforcement:** Merely publishing a Sentinel policy document does not bind or compel non-cooperating third-party tools or external decompilers. Compliance requires an active gate in a cooperating runtime or orchestrator.
 4. **Watermarking Limits:** Watermarking provides passive provenance tagging. Trailing binary frames and LLVM IR metadata nodes do not survive aggressive optimization passes that strip debug metadata (`opt -strip-debug`, `strip`).
 
+## 8a. Signed outputs and Sentinel policies in the job lifecycle
+
+Implemented in `aegis_provenance.jobs` (`JobAttestor`), wired into the API and
+CLI as a Core post-success hook. Full contract, statuses and UI rules:
+[docs/release/FINAL_API_CONTRACT.md](docs/release/FINAL_API_CONTRACT.md).
+
+| Concern | Behaviour |
+| --- | --- |
+| Configuration | `[provenance]` and `[sentinel]` in `aegis.toml`, both **off by default**, strict booleans, absolute paths. Core validates shape only (`ProvenanceConfig`, `SentinelJobConfig`). |
+| Signing key | Operator-provided Ed25519 PKCS#8 PEM. Refused (`CONFIG_INVALID`, API/CLI do not start) if missing, a symlink, not a regular file, group/world-accessible, inside a Git work tree (configured and resolved ancestry, including symlinked parents) or inside the store, wrong/absent password (password only via a named env var), or not Ed25519. AEGIS never generates a key; `aegis-provenance keygen` writes 0600 atomically and refuses Git work trees. |
+| Signing | Inside `Orchestrator.run`, after Core hashed and registered the outputs and before the job is terminal. One `ManifestEnvelope` per output; refused if bytes changed since Core hashed them. Build reference = operator `build_repository`/`build_commit` + job id; `options_digest` = SHA-256 of canonical `{job_id, backend, task, policy_name, options, input_sha256}` (preimage stored). Failure → `signing_failed`, job stays `succeeded`, nothing is reported signed. |
+| Verification | Recomputed per request: `verify_artifact_manifest` against the configured trusted keys only, plus Core-record binding (digest, size, name, job id, recorded manifest digest → else `RECORD_MISMATCH`). `verified` is the only success state; no trusted keys → `ABSENT_TRUSTED_KEYS`. |
+| Sentinel | One policy per output: listed `allowed_actions` allowed, every other action explicitly denied, `manifest_reference` = signed manifest digest. Created with Sentinel's models and checked by its validator. Policy digest recorded; a modified, missing or invalid policy evaluates as denied. Missing caller/environment for a restricted policy is denied (evaluator fixed to fail closed). |
+| Enforcement | Cooperating only. The one AEGIS enforcement point is `GET /v1/jobs/{id}/artifacts/{sha256}` (action `redistribute`, caller `aegis-api`): denied → 403 `POLICY_DENIED`; Sentinel configured but no valid policy → denied. `advisory_notice` policies are reported, not enforced. Sentinel never opens attack-lab gates. |
+| Reads | Output bytes are read once with `O_NOFOLLOW`, size-bounded (256 MiB), re-hashed against Core's record before release (`ARTIFACT_INTEGRITY_ERROR`, 409). Only registered outputs of succeeded jobs; no caller paths. |
+| Contracts | `ProtectionJob`, `ProtectionReport`, `/healthz` and `POST /v1/jobs` unchanged. Additive: error codes `ARTIFACT_NOT_FOUND`, `POLICY_DENIED`; routes `/v1/attestation`, `/v1/jobs/{id}/attestation`, `/v1/jobs/{id}/artifacts/{sha256}[/manifest|/policy|/evaluate]`; CLI `aegis verify`, `aegis evaluate`. |
+
+Limits: a signature attests bytes and metadata by the key holder; it is not
+protection evidence. Key custody is the operator's. `attestation.json` lives in
+the same local store as the outputs (local filesystem trust, as for the job
+records). Sentinel caller ids are asserted, not authenticated. Jobs that
+predate the configuration have no record: they report unsigned, and downloads
+are denied while Sentinel is configured.
+
+### Local release inventory and licensing metadata
+
+The local source/test-build archive includes the compiled dashboard and a
+per-file SHA-256 inventory (`aegis.local-release.v1`). After the operator's
+30 October 2026 approval by all four named contributors, its metadata records
+`license_status: approved` and SPDX `license: MIT`. Root and package-local
+LICENSE files contain the same standard notice. Inventory integrity and license
+approval do not authorize publication or authenticate the publisher; committing,
+pushing and publishing require separate operator approval.
+
 ## 9. Open architecture issues
 
 | ID | Issue |
@@ -317,6 +394,6 @@ Lab-declared digests (pair, hidden suite, sandbox policy, scorer) are bound and 
 | A5 | Adapter stdout/stderr are read fully into memory. `max_stdout_bytes` is checked after the process exits, not while it streams. |
 | A6 | The repository's public default branch is `dev/integration`. No release branch or required CI was confirmed at this revision; release/branch-protection policy must be agreed and implemented. |
 | A7 | The recorded full integration run used Python 3.14 and LLVM 22.1.8. The four-role documentation revision also passed the 105 Core/API/CLI tests on Python 3.12.14; native integration was not rerun there. Packages declare `>=3.11`. |
-| A8 | `.env.example` is empty. The runtime environment variables in use are `AEGIS_CONFIG` and `AEGIS_API_TOKEN`. |
+| A8 | `.env.example` is empty. The runtime environment variables in use are `AEGIS_CONFIG` and `AEGIS_API_TOKEN`. Optionally, the operator names one more in `[provenance] signing_key_password_env` (the signing key password); it is read only by the API/CLI process and never forwarded to adapters. |
 | A9 | No isolation runtime: ADR 0004 is proposed, `runsc` is not installed, and the V1–V11 verification has not run. Candidate execution is refused (`SANDBOX_UNAVAILABLE`). |
 | A10 | Candidate execution grants, like `AttackLabAuthorization`, are operator-attested files, not cryptographic credentials. Core persists grant usage (the ledger) but not the per-stage records, which are returned to the Lab. The ledger trusts the local filesystem: deleting the store resets it. |

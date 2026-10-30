@@ -1,33 +1,27 @@
-# License draft — owner review required
+# MIT approval record (formerly the license draft)
 
-**Draft only. No license is adopted or granted by this document.** Do not rename
-this file to LICENSE or describe AEGIS as released under MIT until the owner
-approves the choice and copyright notices.
+On 30 October 2026 the project operator explicitly confirmed that all four
+contributors approved the standard MIT License and instructed final adoption:
 
-Proposed release choice: adopt the unmodified **MIT License**, SPDX identifier
-`MIT`, using the [Open Source Initiative’s standard text](https://opensource.org/license/mit).
-The proposed copyright line is:
+- Youssef Bossabah
+- Karim Lahyani
+- Nevan Vu
+- Riche Anyadike
+
+The finalized root LICENSE and package-local copies contain the unchanged standard
+MIT terms and this notice, using the names exactly as supplied by the operator:
 
 ```text
-Copyright (c) 2026 [owner-approved AEGIS copyright holders]
+Copyright (c) 2026 Youssef Bossabah, Karim Lahyani, Nevan Vu, and Riche Anyadike
 ```
 
-The standard MIT terms permit use, modification and redistribution, including
-commercial redistribution, while requiring preservation of the relevant notices.
-They disclaim warranty and liability. The final release should copy the linked
-standard license text verbatim with the confirmed holders; this proposal does
-not replace it with a custom purported MIT variant.
+Python package metadata declares SPDX `MIT` and includes its local LICENSE in
+built metadata. Dashboard and the owned Rust fixture also declare MIT. Release
+inventories record `license_status: approved`, `license: MIT`.
 
-Owner decisions before adoption:
-
-- Confirm every contributor’s authority to license their contributions and the
-  correct holders/year. Do not invent ownership or attribution.
-- Confirm MIT is the intended choice, including whether a different license with
-  an explicit patent grant is desired. No choice is finalized here.
-- Inventory third-party dependencies, LLVM components and bundled assets; their
-  own notices and licenses remain applicable. Models and research inputs have
-  separate terms; this draft does not license any external model or target.
-- Approve the final root LICENSE and accompanying notices in a separate review.
-
-The local release manifest deliberately reports `pending_owner_review`. Public
-publication remains an operator action requiring explicit approval.
+Third-party notices and external model/research-input terms remain independent.
+This is the operator's recorded authorization, not an independently collected
+legal opinion or a relicensing of third-party code. Historical reports referring
+to a pending proposal describe their earlier snapshots. No commit, push or
+publication is authorized by license approval; the operator must separately
+approve the final release contents.

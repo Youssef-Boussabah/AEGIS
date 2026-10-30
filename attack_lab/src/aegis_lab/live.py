@@ -38,7 +38,7 @@ def preflight(prepared, artifact, configuration, approval=None):
     if approval is not None:
         check_inference_approval(prepared, configuration, approval, allow_live=True)
     return {"schema_version": "aegis.lab.live-preflight.v1", "network_requests": 0, "billable_requests": 0,
-            "credentials_configured": bool(os.environ.get(NEBIUS_API_KEY_ENV, "").strip()),
+            "credentials_configured": NEBIUS_API_KEY_ENV in os.environ,
             "artifact_identity_verified": True, "artifact_readable": os.access(artifact, os.R_OK),
             "prepared": prepared.safe_metadata(), "workflow_sha256": live_workflow_sha256(configuration),
             "proposed_model": prepared.request.model, "proposed_endpoint": NEBIUS_BASE_URL,
@@ -81,6 +81,8 @@ def main(argv=None):
         p.add_argument("artifact", type=Path)
         p.add_argument("--steps", type=int, default=1)
         p.add_argument("--max-output-tokens", type=int)
+        p.add_argument("--disable-thinking", action="store_true",
+                       help="explicit Nebius template control; requires a matching sampling digest and fresh approval")
         if command != "draft":
             p.add_argument("--approval", type=Path, required=command == "run")
         if command == "run":
@@ -96,7 +98,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         prepared = prepare_reconstruction(load_manifest(args.manifest), read_regular_file(args.report, 8 * 1024 * 1024),
-                                          max_output_tokens=args.max_output_tokens)
+                                          max_output_tokens=args.max_output_tokens,
+                                          enable_thinking=False if args.disable_thinking else None)
         config = WorkflowConfig(max_steps=args.steps)
         approval = load_approval(args.approval) if getattr(args, "approval", None) else None
         summary = preflight(prepared, args.artifact, config, approval)

@@ -1,5 +1,8 @@
 # Product release validation — 29 October 2026
 
+> Historical baseline. Current release results, inventory and blockers are in
+> [FINAL_RELEASE_REPORT.md](FINAL_RELEASE_REPORT.md).
+
 Branch: `feat/product-release`. Base HEAD:
 `470f96a9a71a0c8de0d995b4b64a63257bfa97ee`.
 Product changes remain **uncommitted**. The review archive’s file inventory binds

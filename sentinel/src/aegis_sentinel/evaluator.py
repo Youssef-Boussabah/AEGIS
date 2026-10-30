@@ -85,25 +85,33 @@ def evaluate_action(
             evaluated_at=check_time,
         )
 
-    # 3. Environment constraint
-    if c.environments is not None and environment is not None:
-        if environment not in c.environments:
+    # 3. Environment constraint (fail closed: a restricted policy needs an environment)
+    if c.environments is not None:
+        if environment is None or environment not in c.environments:
             return EvaluationResult(
                 action=action,
                 permitted=False,
                 enforcement_mode=policy.enforcement_mode,
-                reason=f"Environment '{environment}' not in permitted environments: {c.environments}",
+                reason=(
+                    f"Environment '{environment}' not in permitted environments: {c.environments}"
+                    if environment is not None
+                    else f"Policy restricts environments to {c.environments}; none was supplied."
+                ),
                 evaluated_at=check_time,
             )
 
-    # 4. Caller ID constraint
-    if c.allowed_caller_ids is not None and caller_id is not None:
-        if caller_id not in c.allowed_caller_ids:
+    # 4. Caller ID constraint (fail closed: a restricted policy needs a caller ID)
+    if c.allowed_caller_ids is not None:
+        if caller_id is None or caller_id not in c.allowed_caller_ids:
             return EvaluationResult(
                 action=action,
                 permitted=False,
                 enforcement_mode=policy.enforcement_mode,
-                reason=f"Caller ID '{caller_id}' not in authorized callers: {c.allowed_caller_ids}",
+                reason=(
+                    f"Caller ID '{caller_id}' not in authorized callers: {c.allowed_caller_ids}"
+                    if caller_id is not None
+                    else f"Policy restricts callers to {c.allowed_caller_ids}; none was supplied."
+                ),
                 evaluated_at=check_time,
             )
 

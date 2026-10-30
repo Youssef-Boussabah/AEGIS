@@ -124,7 +124,9 @@ Errors are `{"code", "message", "details"}` (`ErrorInfo`) with a stable `code`:
 | `ADAPTER_TIMEOUT` | adapter killed after its timeout | job fails | 1 |
 | `ADAPTER_FAILED` | nonzero exit or `status: "failed"` | job fails | 1 |
 | `ADAPTER_INVALID_OUTPUT` | bad JSON, missing/escaping outputs, success with no outputs | job fails | 1 |
-| `ARTIFACT_INTEGRITY_ERROR` | input hash changed during the run | job fails | 1 |
+| `ARTIFACT_INTEGRITY_ERROR` | input hash changed during the run (job fails); or a stored output no longer matches its recorded SHA-256 when read | job fails / 409 | 1 |
+| `ARTIFACT_NOT_FOUND` | no registered output with that SHA-256 in a succeeded job, or no manifest/policy for it (`details.kind`) | 404 | 6 |
+| `POLICY_DENIED` | a cooperating Sentinel policy denies the action, or the governing policy is missing/invalid/modified | 403 | 5 |
 | `SANDBOX_UNAVAILABLE` | candidate execution: no approved, verified isolation runtime (`details.blockers`); nothing was started | not exposed (500) | not exposed (70) |
 | `SANDBOX_FAILED` | candidate execution: runtime start, enforcement, protocol or cleanup failure (`details.failure`); never a candidate outcome | not exposed (500) | not exposed (70) |
 | `STORAGE_ERROR`, `INTERNAL_ERROR` | local I/O or unexpected errors | 500 | 3 / 70 |
@@ -216,3 +218,14 @@ launch path. See [the review and results](../docs/CORE_EXECUTION_REVIEW.md).
 
 See [docs/adapter-protocol.md](docs/adapter-protocol.md) for how to write an
 adapter.
+
+## Output signing and Sentinel policies (optional)
+
+Core validates the `[provenance]` and `[sentinel]` sections of `aegis.toml`
+(both off by default) and exposes `Orchestrator.post_success_hooks`,
+`Orchestrator.find_output` and `Orchestrator.read_output` (bytes re-hashed
+against the record, `O_NOFOLLOW`, 256 MiB cap). Core itself never loads keys
+or imports cryptography: signing and policies are implemented by
+`aegis_provenance.jobs`, which the API and CLI register as a hook. See
+[ARCHITECTURE.md §8a](../ARCHITECTURE.md) and
+[docs/release/FINAL_API_CONTRACT.md](../docs/release/FINAL_API_CONTRACT.md).

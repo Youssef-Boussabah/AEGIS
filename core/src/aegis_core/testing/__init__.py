@@ -25,6 +25,7 @@ def write_test_config(
     timeout_seconds: int = 30,
     tasks: tuple[str, ...] = ("protect", "attack_lab"),
     max_input_bytes: int = 1024 * 1024,
+    extra_toml: str = "",
 ) -> Path:
     """Write an aegis.toml that registers the fake adapter as backend 'fake'."""
     command = ", ".join(json.dumps(arg) for arg in fake_adapter_command())
@@ -44,7 +45,7 @@ enabled = {"true" if candidate_execution_enabled else "false"}
 command = [{command}]
 tasks = [{task_list}]
 timeout_seconds = {timeout_seconds}
-"""
+{extra_toml}"""
     path = directory / "aegis.toml"
     path.write_text(text, encoding="utf-8")
     return path

@@ -21,6 +21,7 @@ def pytest_addoption(parser):
     parser.addoption("--shield-plugin", default="/tmp/aegis-adapter-build/AegisShield.so")
     parser.addoption("--shield-opt", default=shutil.which("opt"))
     parser.addoption("--shield-clang", default=shutil.which("clang"))
+    parser.addoption("--shield-llvm-link", default=shutil.which("llvm-link"))
 
 
 @pytest.fixture(scope="session")

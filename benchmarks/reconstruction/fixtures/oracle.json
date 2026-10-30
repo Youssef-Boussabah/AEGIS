@@ -1,0 +1,222 @@
+{
+  "schema": "aegis.reconstruction.oracle.v1",
+  "interface": "u32(u32,u32)",
+  "cases": [
+    {
+      "id": "c001",
+      "function": "recon_mix",
+      "arguments": [
+        0,
+        0
+      ],
+      "expected": 2654435769
+    },
+    {
+      "id": "c002",
+      "function": "recon_mix",
+      "arguments": [
+        0,
+        3
+      ],
+      "expected": 2654436156
+    },
+    {
+      "id": "c003",
+      "function": "recon_mix",
+      "arguments": [
+        1,
+        2
+      ],
+      "expected": 2654436156
+    },
+    {
+      "id": "c004",
+      "function": "recon_mix",
+      "arguments": [
+        3,
+        0
+      ],
+      "expected": 2654436156
+    },
+    {
+      "id": "c005",
+      "function": "recon_mix",
+      "arguments": [
+        4294967295,
+        0
+      ],
+      "expected": 2586834869
+    },
+    {
+      "id": "c006",
+      "function": "recon_mix",
+      "arguments": [
+        4294967295,
+        1
+      ],
+      "expected": 2654435769
+    },
+    {
+      "id": "c007",
+      "function": "recon_mix",
+      "arguments": [
+        4294967295,
+        4294967295
+      ],
+      "expected": 2586834742
+    },
+    {
+      "id": "c008",
+      "function": "recon_mix",
+      "arguments": [
+        2147483648,
+        2147483648
+      ],
+      "expected": 2654435769
+    },
+    {
+      "id": "c009",
+      "function": "recon_mix",
+      "arguments": [
+        305419896,
+        2596069104
+      ],
+      "expected": 3310701224
+    },
+    {
+      "id": "c010",
+      "function": "recon_mix",
+      "arguments": [
+        7,
+        4
+      ],
+      "expected": 2654437188
+    },
+    {
+      "id": "c011",
+      "function": "recon_mix",
+      "arguments": [
+        8,
+        7
+      ],
+      "expected": 2654437704
+    },
+    {
+      "id": "c012",
+      "function": "recon_mix",
+      "arguments": [
+        42,
+        12345
+      ],
+      "expected": 2656033575
+    },
+    {
+      "id": "c013",
+      "function": "recon_gate",
+      "arguments": [
+        0,
+        0
+      ],
+      "expected": 324508639
+    },
+    {
+      "id": "c014",
+      "function": "recon_gate",
+      "arguments": [
+        0,
+        3
+      ],
+      "expected": 2779096503
+    },
+    {
+      "id": "c015",
+      "function": "recon_gate",
+      "arguments": [
+        1,
+        2
+      ],
+      "expected": 2779096503
+    },
+    {
+      "id": "c016",
+      "function": "recon_gate",
+      "arguments": [
+        3,
+        0
+      ],
+      "expected": 2779096503
+    },
+    {
+      "id": "c017",
+      "function": "recon_gate",
+      "arguments": [
+        4294967295,
+        0
+      ],
+      "expected": 861379550
+    },
+    {
+      "id": "c018",
+      "function": "recon_gate",
+      "arguments": [
+        4294967295,
+        1
+      ],
+      "expected": 324508638
+    },
+    {
+      "id": "c019",
+      "function": "recon_gate",
+      "arguments": [
+        4294967295,
+        4294967295
+      ],
+      "expected": 212362271
+    },
+    {
+      "id": "c020",
+      "function": "recon_gate",
+      "arguments": [
+        2147483648,
+        2147483648
+      ],
+      "expected": 2471992287
+    },
+    {
+      "id": "c021",
+      "function": "recon_gate",
+      "arguments": [
+        305419896,
+        2596069104
+      ],
+      "expected": 2676583388
+    },
+    {
+      "id": "c022",
+      "function": "recon_gate",
+      "arguments": [
+        7,
+        4
+      ],
+      "expected": 2779096511
+    },
+    {
+      "id": "c023",
+      "function": "recon_gate",
+      "arguments": [
+        8,
+        7
+      ],
+      "expected": 324508633
+    },
+    {
+      "id": "c024",
+      "function": "recon_gate",
+      "arguments": [
+        42,
+        12345
+      ],
+      "expected": 2779092439
+    }
+  ]
+}

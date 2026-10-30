@@ -91,8 +91,10 @@ jobs:
             --shield-opt "$(command -v opt-22)" \
             --shield-clang "$(command -v clang-22)"
 
-      - name: Mirage transformation, retained symbols and disabled control
-        run: PYTHONPATH=protectors/mirage/src .venv/bin/python -m pytest scripts/native_tests -q
+      - name: Mirage and Shield+Mirage final-link retention, outputs and disabled controls
+        run: |
+          PYTHONPATH=protectors/mirage/src .venv/bin/python -m pytest scripts/native_tests -q \
+            --shield-plugin /tmp/aegis-shield-build/AegisShield.so
 
       - name: Install locked dashboard and browser dependencies
         working-directory: platform/dashboard

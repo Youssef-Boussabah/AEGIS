@@ -1,8 +1,39 @@
 # AEGIS Adversarial Lab
 
+The controlled live CLI now accepts an explicit `--disable-thinking` option for
+the Nebius Nemotron diagnostic. It forwards
+`chat_template_kwargs.enable_thinking=false`, binds the setting into the sampling
+digest and exact reviewed request, and requires a fresh matching single-use
+approval. Omission preserves historical request bodies/digests. Truncated or
+malformed replies remain failures; no candidate execution is authorized.
+See [the thinking-control diagnostic](docs/thinking-control.md).
+
 Role **B** · working branch `feat/lab-behavior-scoring` · [issue #10](https://github.com/Youssef-Boussabah/AEGIS/issues/10)
 
-## Current delivery (29 October 2026)
+## Current delivery (30 October 2026)
+
+An operator-supplied Nebius response exposed non-null `reasoning` and
+`reasoning_content` strings that the original parser rejected. The transport now
+uses a narrowly typed v2 parser; unversioned historical archives still verify
+with v1 and keep their original outcomes. A separate offline post-hoc review
+validated the returned candidate envelope without running it or making another
+request. See [compatibility, historical preservation and exact validation](docs/nebius-reasoning-compatibility.md).
+
+The NVIDIA research follow-up adds a verified public post-hoc projection and
+prepares two new **unapproved** continuation requests with the actual baseline's
+8,192-token output cap. The original `invalid_output` and the separately valid
+candidate envelope remain distinct. See [the exported summary, exact remaining
+operator commands, comparability limits and final validation](docs/nvidia-research-deliverable.md).
+
+Initial 30 October validation and integration: the live path was **offline-tested**;
+no genuine provider call or candidate execution was authorized in that session. Offline archive
+verification now rechecks catalogue contents, request conversations, generation
+classification, selected candidates, reservations and estimated reported-token
+costs. Three-way archives can be verified without reading original plan paths.
+The public exporter supports strict reconstruction/comparison v2 projections;
+see [the exact Agent 3 contract and synthetic fixtures](docs/public-summary.md),
+[operator-only one-request and fresh three-way commands](docs/operator-live-run.md),
+and [current validation results and limitations](docs/agent2-validation.md).
 
 The existing manifest, Ghidra, one-shot reconstruction, paired trials and Phase 4
 scoring paths are preserved. New `aegis_lab.experiment` adds an explicitly labeled
@@ -18,7 +49,9 @@ Core's execution authorization and dual gates are unchanged. See
 [the inference decision, exact commands and approval gate](docs/live-inference.md).
 The live path checks account model availability before disclosure, reserves the
 full published model context and worst-case spending, and archives exact responses
-privately. Live account calls have **not been run** and no credits were spent.
+privately. Initial implementation tests made no live calls. The operator has since
+supplied a live response archive for offline verification and post-hoc review;
+Agent 2 made no additional requests. Actual billing remains unknown.
 FakeOffline remains explicitly scripted. Missing usage and actual live billing stay
 unknown; offline cost is zero. Historical phase descriptions below describe their
 original delivery; the linked live-inference document supersedes their live blockers.

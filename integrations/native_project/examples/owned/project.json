@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "project_root": ".",
+  "backend": "llvm-shield-mirage",
+  "options": {"seed": "42", "max-sites": 16},
+  "optimization": "2",
+  "units": [
+    {"source": "main.cpp", "arguments": ["-std=c++17", "-Wall", "-Wextra", "-ffunction-sections", "-fdata-sections"], "protect": false},
+    {"source": "kernels.cpp", "arguments": ["-std=c++17", "-Wall", "-Wextra", "-ffunction-sections", "-fdata-sections"], "selection": {"mode": "symbols", "symbols": ["mix_pair", "fold_word"]}},
+    {"source": "checksum.c", "arguments": ["-std=c11", "-Wall", "-Wextra", "-ffunction-sections", "-fdata-sections"], "selection": {"mode": "annotated"}},
+    {"source": "policy.cpp", "arguments": ["-std=c++17", "-Wall", "-Wextra", "-ffunction-sections", "-fdata-sections"], "protect": false}
+  ],
+  "link": {
+    "arguments": ["-Wl,--gc-sections"],
+    "runs": [
+      {"args": []},
+      {"args": ["0", "0"]},
+      {"args": ["0", "1"]},
+      {"args": ["4294967295", "65536"]},
+      {"args": ["2147483648", "1000000"]},
+      {"args": ["1", "99"]},
+      {"args": ["1", "100"]},
+      {"args": ["1", "101"]},
+      {"args": ["not-a-number"], "expected_exit": 2},
+      {"args": ["-1"], "expected_exit": 2},
+      {"args": ["0", "1000001"], "expected_exit": 2}
+    ]
+  }
+}

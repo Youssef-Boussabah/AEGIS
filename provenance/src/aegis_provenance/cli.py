@@ -30,6 +30,15 @@ def _cmd_keygen(args: argparse.Namespace) -> int:
     if priv_path.exists() and not args.force:
         sys.stderr.write(f"Error: private key file already exists: {priv_path}\n")
         return 1
+    from aegis_provenance.jobs import inside_git_work_tree
+
+    repo = inside_git_work_tree(priv_path)
+    if repo is not None:
+        sys.stderr.write(
+            f"Error: refusing to write a private key inside the Git work tree {repo}; "
+            "choose a path outside any repository.\n"
+        )
+        return 2
 
     kp = generate_keypair()
     save_keypair_files(kp, priv_path, pub_path, password=args.password)

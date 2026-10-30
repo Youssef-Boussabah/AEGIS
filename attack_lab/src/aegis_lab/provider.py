@@ -144,6 +144,12 @@ FinishReason = Literal["stop", "length", "content_filter", "tool_calls", "unknow
 # response "unsupported" rather than silently ignored.
 _KNOWN_MESSAGE_FIELDS = frozenset({"role", "content", "refusal", "tool_calls", "function_call"})
 _IGNORABLE_NULL_FIELDS = frozenset({"audio", "annotations", "reasoning_content", "reasoning"})
+# v1 remains the default for existing callers and unversioned private archives.
+# Nebius transports explicitly select v2; opaque reasoning never enters content.
+LEGACY_COMPLETION_PARSER = "aegis.lab.completion-parser.v1"
+NEBIUS_REASONING_COMPLETION_PARSER = "aegis.lab.nebius-reasoning-text.v2"
+CompletionParser = Literal["aegis.lab.completion-parser.v1", "aegis.lab.nebius-reasoning-text.v2"]
+NEBIUS_REASONING_FIELDS = frozenset({"reasoning", "reasoning_content"})
 
 
 # --- Endpoint identity ----------------------------------------------------------------------------
@@ -339,6 +345,7 @@ class InferenceRequest(BaseModel):
     stop: tuple[str, ...] = Field(max_length=4, default=())
     n: Literal[1] = 1
     store: Literal[False] | None = None
+    enable_thinking: StrictBool | None = None
 
     def unsupported_options(self) -> tuple[str, ...]:
         """Options whose effect the provider does not guarantee; recorded, not asserted."""
@@ -364,6 +371,8 @@ class InferenceRequest(BaseModel):
             # Live requests cap reasoning tokens as well as visible output.
             body["max_completion_tokens"] = self.max_output_tokens
             body["service_tier"] = "default"
+        if self.enable_thinking is not None:
+            body["chat_template_kwargs"] = {"enable_thinking": self.enable_thinking}
         return body
 
 
@@ -530,13 +539,21 @@ def _parse_usage(raw: Any) -> tuple[UsageStatus, Usage | None]:
         return "invalid", None
 
 
-def parse_completion(payload: bytes) -> InferenceResponse:
+def parse_completion(payload: bytes, *, parser: CompletionParser = LEGACY_COMPLETION_PARSER) -> InferenceResponse:
     """Strictly parse an HTTP 200 chat-completion body. Raises ``ProviderError`` if invalid.
+
+    Default v1 preserves existing callers and archived parsed-response bytes.
+    Nebius explicitly selects v2: only reasoning/reasoning_content may additionally
+    be valid UTF-8 strings without NUL. Their opaque values are never retained in
+    the typed response or interpreted as candidate content. Unknown fields stay
+    unsupported; invalid recognized metadata raises malformed_response.
 
     The size bound is checked first, so every caller (network transport or offline
     provider) gets the same typed ``oversized_response`` error and an oversized
     body is never decoded, hashed or retained.
     """
+    if parser not in (LEGACY_COMPLETION_PARSER, NEBIUS_REASONING_COMPLETION_PARSER):
+        raise ValueError("unknown_completion_parser")
     if not isinstance(payload, bytes):
         raise TypeError("payload must be bytes")
     if len(payload) > MAX_RESPONSE_BYTES:
@@ -587,8 +604,14 @@ def parse_completion(payload: bytes) -> InferenceResponse:
     if tool_calls_value is not None and not isinstance(tool_calls_value, list):
         raise malformed()
     tool_calls = bool(tool_calls_value) or message.get("function_call") is not None
+    if parser == NEBIUS_REASONING_COMPLETION_PARSER:
+        for key in NEBIUS_REASONING_FIELDS:
+            value = message.get(key)
+            if value is not None and (not isinstance(value, str) or not _valid_text(value)):
+                raise malformed()
     unsupported = any(
         key not in _KNOWN_MESSAGE_FIELDS and not (key in _IGNORABLE_NULL_FIELDS and value is None)
+        and not (parser == NEBIUS_REASONING_COMPLETION_PARSER and key in NEBIUS_REASONING_FIELDS)
         for key, value in message.items()
     )
 
@@ -647,6 +670,7 @@ class NebiusProvider:
     """
 
     external_disclosure = True
+    completion_parser = NEBIUS_REASONING_COMPLETION_PARSER
     __slots__ = ("_allow_live", "_evidence_sink", "_api_key", "_endpoint", "_host", "_port", "_path_prefix", "_connect_timeout",
                  "_read_timeout", "_ssl_context", "_provider_name", "_monotonic", "_wall_clock")
 
@@ -773,7 +797,7 @@ class NebiusProvider:
         if self._evidence_sink is not None:
             self._evidence_sink("response", payload)
         if status == 200:
-            return parse_completion(payload)
+            return parse_completion(payload, parser=self.completion_parser)
         provider_type, provider_code = _error_identifiers(payload)
         category, status_submission = classify_http_status(status)
         ra_status, ra_seconds = retry_after

@@ -1,0 +1,42 @@
+{
+  "schema": "aegis.product.evidence.v2",
+  "kind": "reconstruction",
+  "source_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "verification": "offline_hash_bindings_checked",
+  "summary": {
+    "evidence_label": "synthetic_fixture",
+    "trial_id": "11111111111111111111111111111111",
+    "pair_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "artifact_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "candidate_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "generation_status": "generated_but_behaviorally_unscored",
+    "behavioral_scoring": "pending_authorized_core_runtime",
+    "provider": "Nebius",
+    "requested_model": "nvidia/synthetic-fixture-model",
+    "reported_model": "nvidia/synthetic-fixture-model",
+    "reported_model_status": "matched",
+    "reported_identity_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "steps": 1,
+    "charged_tokens": 102048,
+    "known_reported_tokens": 160,
+    "reported_tokens": 160,
+    "prompt_tokens": 128,
+    "completion_tokens": 32,
+    "usage_status": "complete",
+    "cost_microusd": null,
+    "cost_basis": "provider_invoice_unknown",
+    "reserved_spend_microusd": 10615,
+    "estimated_reported_cost_microusd": 23,
+    "execution_performed": false,
+    "attack_effectiveness": "not_established",
+    "limitations": [
+      "unsigned_local_evidence_not_provider_attestation",
+      "candidate_text_is_not_reconstruction_success",
+      "no_candidate_compilation_execution_or_behavioral_score",
+      "no_established_protection_effect",
+      "provider_identity_and_usage_are_reported_not_independently_measured",
+      "billing_unknown_reservations_are_not_invoice",
+      "synthetic_fixture_not_live_evidence"
+    ]
+  }
+}

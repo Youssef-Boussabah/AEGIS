@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import uuid
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -38,6 +38,15 @@ def _new_id() -> str:
     return uuid.uuid4().hex
 
 
+PostSuccessHook = Callable[[ProtectionJob], None]
+"""Called with a succeeded job after its outputs are hashed and registered, before
+the report and terminal job.json are written. It must not change the outputs. An
+exception is logged and never turns the job into a failure: hooks record their
+own outcome (for example aegis_provenance.jobs writes signing_failed)."""
+
+MAX_OUTPUT_READ_BYTES = 256 * 1024 * 1024
+
+
 class Orchestrator:
     def __init__(
         self,
@@ -46,8 +55,10 @@ class Orchestrator:
         store: LocalArtifactStore | None = None,
         runner: SubprocessAdapterRunner | None = None,
         clock: Callable[[], datetime] = utcnow,
+        post_success_hooks: Sequence[PostSuccessHook] = (),
     ):
         self.config = config
+        self.post_success_hooks: list[PostSuccessHook] = list(post_success_hooks)
         self.store = store or LocalArtifactStore(
             config.storage.root, max_input_bytes=config.storage.max_input_bytes
         )
@@ -158,6 +169,12 @@ class Orchestrator:
                     f"Unexpected orchestrator error ({type(exc).__name__}).",
                 ),
             )
+        if job.status is JobStatus.SUCCEEDED:
+            for hook in self.post_success_hooks:
+                try:
+                    hook(job)
+                except Exception:
+                    logger.exception("post-success hook failed for job %s", job_id)
         # Report first: a terminal job.json then always has a report next to it.
         self.store.save_report(self._build_report(job, evidence, evaluations))
         self.store.save_job(job)
@@ -415,6 +432,25 @@ class Orchestrator:
         if report is None:
             raise AegisError(ErrorCode.STORAGE_ERROR, f"Report for job {job_id} is missing.")
         return report
+
+    def find_output(self, job_id: str, sha256: str) -> tuple[ProtectionJob, Artifact]:
+        """The registered output with this digest of a succeeded job, or ARTIFACT_NOT_FOUND."""
+        job = self.store.load_job(job_id)
+        if job.status is JobStatus.SUCCEEDED:
+            for artifact in job.output_artifacts:
+                if artifact.sha256 == sha256:
+                    return job, artifact
+        raise AegisError(
+            ErrorCode.ARTIFACT_NOT_FOUND,
+            f"Job {job_id} has no output artifact with that SHA-256.",
+            {"kind": "artifact", "job_status": job.status.value},
+        )
+
+    def read_output(self, job_id: str, sha256: str) -> tuple[ProtectionJob, Artifact, bytes]:
+        """Bytes of a registered output, re-hashed against Core's record before return."""
+        job, artifact = self.find_output(job_id, sha256)
+        data = self.store.read_artifact_verified(artifact, max_bytes=MAX_OUTPUT_READ_BYTES)
+        return job, artifact, data
 
     def list_jobs(self) -> list[ProtectionJob]:
         return [self.store.load_job(job_id) for job_id in self.store.list_job_ids()]

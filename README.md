@@ -11,7 +11,10 @@ Arbitrary binaries, websites, mobile apps and consoles need future backends.
 Prerequisites: Linux/POSIX, Python ≥3.11, uv, Node ≥22.18 and npm, matching
 LLVM/Clang **22.x** tools (`llvm-config`, `clang`, `clang++`, `opt`, `llvm-link`,
 `llvm-nm`), CMake and Ninja on PATH. The verified local toolchain and exact test
-results are in [release validation](docs/release/VALIDATION.md).
+results are in [final release report](docs/release/FINAL_RELEASE_REPORT.md).
+The current licensed candidate, contents approval and clean-install evidence are
+in [the final release review](docs/release/RELEASE_CONTENTS_READY.md); the complete
+combined-tree results are in [FINAL_SYSTEM_TEST.md](docs/release/FINAL_SYSTEM_TEST.md).
 No startup command installs global packages or binds a public address.
 
 From the repository root, explicitly install repository-local dependencies:
@@ -50,13 +53,14 @@ research imports, authentication, diagnostics and the review package.
 | Dashboard | Real upload, polling, reports/download, job-ID reload, verified local summary import | No historical job-list API, telemetry or license counts |
 | LLVM Shield | LLVM 22 textual-IR arithmetic rewriting through the real adapter | Prototype; zero-transform jobs fail; optimization can undo rewrites; no established security property |
 | ImageLab | Owned image app, reference tests, native / IR baseline / Shield comparisons | Local measurements and sampled correctness only |
-| Mirage | LLVM 22 / ELF retained unreachable arithmetic decoys; standalone transformer | Final retention needs checking; no web honeypots or measured attack resistance |
-| Adversarial Lab | Bound Ghidra evidence, offline scripted reconstruction, private evidence verification, scoring interfaces | Core execution dependency unmerged here; no verified real candidate execution or live inference |
-| Nebius / NVIDIA | Offline-tested Nebius chat-completion transport; configurable model ID | No verified live request or NVIDIA GPU run; live inference remains disabled |
-| Provenance / Sentinel | Separate offline Ed25519 signing/verification and cooperating rights-policy CLIs | No automatic job signing; advisory metadata does not force external tools to cooperate |
+| Mirage | Standalone transformer and real `llvm-shield-mirage` Core backend; retained decoys checked in two owned ELF programs | Tested LLVM 22 / O2 / linker-GC conditions only; no measured attack resistance |
+| Adversarial Lab | Bound Ghidra evidence, scripted reconstruction, private archive verification and approval-gated inference | Generated candidates remain uncompiled, unexecuted and behaviorally unscored; authorized execution runtime unavailable |
+| Nebius / NVIDIA | One operator-supplied archived response from requested/reported `nvidia/Nemotron-3_5-Lightning`, verified offline; separate post-hoc candidate-envelope review | Provider-reported identity/usage; GPU hardware and weights unverified; no completed three-way behavioral comparison |
+| Provenance / Sentinel | Optional automatic Ed25519 output signing, fresh verification and cooperating download-policy enforcement; dashboard inspection | Off by default; operator key custody; signatures attest bytes, not security or authorship; external tools need not cooperate |
 | Other ecosystems | Future compatible backends | Arbitrary binaries, web/mobile and console protection unsupported today |
 
-The [merged Role B handoff](attack_lab/docs/role-b-delivery.md) is the source for
+The [NVIDIA research deliverable](attack_lab/docs/nvidia-research-deliverable.md)
+documents the archived live result and its limits. The [merged Role B handoff](attack_lab/docs/role-b-delivery.md) is the source for
 its research claims. In its one owned `signal.c` experiment, final baseline and
 Shield binary digests were identical after optimization. Mirage retained three
 decoys, but AI target-selection effects and behavioral reconstruction resistance
@@ -73,11 +77,14 @@ PLAYWRIGHT_BROWSERS_PATH=/tmp/aegis-product-browsers \
   .venv/bin/python scripts/product.py verify
 ```
 
-Stop a manually started product server before `verify`; the browser suite starts
-and stops its own servers. Missing native/browser prerequisites fail explicitly.
+Stop a manually started product server before `verify`, or give `verify` free
+ports (`--api-port 8100 --dashboard-port 5273`); the browser suite starts and
+stops its own servers. Missing native/browser prerequisites fail explicitly.
 Lab’s **offline** suite labels skips as **NOT RUN**; it does not substitute for
 strict Core+Lab integration. The [CI integration plan](docs/release/CI-INTEGRATION.md)
-records the merge prerequisites and future strict job.
+records historical CI prerequisites. For the final local gate, set
+`AEGIS_GHIDRA_HEADLESS=/absolute/ghidra/support/analyzeHeadless` and add
+`--lab-profile integration` to `verify` (Ghidra 12.1.4 and JDK 21+ required).
 
 ```sh
 .venv/bin/python scripts/product.py package
@@ -88,8 +95,42 @@ dashboard and a per-file SHA-256 inventory. No runtime store, private research
 archive, credentials, virtualenv, node_modules or native plugin is included.
 It is a local review package, not a published release or a portable binary build.
 Build native components on the recipient’s matching LLVM 22 installation.
-The [license draft](docs/release/LICENSE-MIT-DRAFT.md) awaits owner approval;
-no final open-source license is granted by that draft.
+AEGIS is licensed under the standard [MIT License](LICENSE), copyright 2026
+Youssef Bossabah, Karim Lahyani, Nevan Vu, and Riche Anyadike. The operator
+confirmed all four contributors' approval on 30 October 2026. Third-party
+components retain their own notices. Commit, push and publication of this final
+working-tree release still require separate approval.
+See the [license approval record](docs/release/LICENSE-MIT-DRAFT.md).
+
+## NVIDIA / Nebius runtime integration
+
+The local product requires no cloud account. Separately, Lab can send an explicitly
+approved, bounded HTTPS chat-completion request to Nebius Token Factory with an
+NVIDIA model ID. Credentials stay in the operator process environment; the
+dashboard imports only an allowlisted public summary and a separately supplied
+SHA-256. It makes no inference request and uploads no imported summary.
+
+`scripts/live_evaluate.py prepare` connects an owned, signed Core protection job
+to fresh ImageLab/Ghidra evidence and unapproved request drafts. After independent
+operator approval, its `run` command uses the production Lab transport and exports
+verified public metadata. **Inference-only approval never authorizes compilation
+or execution of the returned candidate**: `run` records scoring as `not_run` and
+does not invoke the separate experimental scorer. The full fresh-input route is
+in [the judge runtime guide](docs/release/JUDGE_RUNTIME_INFERENCE.md).
+An explicit `--disable-thinking` option is bound into the reviewed Nebius request
+and archived sampling parameters; omission preserves historical requests. Use a
+new approval for any changed request configuration. Final live-demo evidence is
+coordinated separately from local packaging; no key is bundled or requested by
+the dashboard.
+
+In the supplied baseline archive, the requested and reported model is
+`nvidia/Nemotron-3_5-Lightning`: 1,786 prompt and 8,039 completion tokens, 9,825 total
+(provider reports). Actual billing and GPU/weight identity are unknown. The
+historical result remains `invalid_output` under parser v1. A separate v2 review
+accepts typed reasoning metadata and validates the candidate text envelope as
+**post-hoc, behaviorally unscored**. It neither compiles nor runs the candidate.
+Shield and Mirage inference continuations still need separate operator approvals;
+this release task makes no paid requests. See the [runtime and evidence guide](docs/release/NVIDIA_NEBIUS.md).
 
 ## Documentation
 

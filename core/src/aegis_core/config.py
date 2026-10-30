@@ -148,9 +148,89 @@ class AdapterSpec(AegisModel):
         return value
 
 
+SENTINEL_ACTIONS = ("execute", "analyze", "redistribute", "modify", "attack_evaluate")
+SentinelAction = Literal["execute", "analyze", "redistribute", "modify", "attack_evaluate"]
+
+
+class ProvenanceConfig(AegisModel):
+    """Operator settings for signing job outputs with aegis-provenance (Ed25519).
+
+    Data only: Core never loads keys or imports cryptography. The signing key is
+    an operator-provided PKCS#8 PEM file; AEGIS never generates one. File checks
+    (outside Git and the store, mode 0600, Ed25519) happen when aegis_provenance
+    loads the settings, and failures stop the API/CLI with CONFIG_INVALID.
+    """
+
+    enabled: StrictBool = False
+    signing_key_path: Path | None = None
+    signing_key_password_env: Annotated[str, Field(pattern=ENV_NAME_PATTERN)] | None = None
+    """Name of an environment variable holding the key password (never the password)."""
+    trusted_public_keys: list[Path] = Field(default_factory=list, max_length=32)
+    """Public keys (PEM) accepted when verifying. Signatures by any other key fail."""
+    signer_name: Annotated[str, Field(min_length=1, max_length=128)] | None = None
+    signer_organization: Annotated[str, Field(min_length=1, max_length=128)] | None = None
+    build_repository: Annotated[str, Field(min_length=1, max_length=512)] | None = None
+    build_commit: Annotated[str, Field(pattern=r"^[0-9a-f]{7,64}$")] | None = None
+
+    @field_validator("signing_key_path")
+    @classmethod
+    def _key_path(cls, value: Path | None) -> Path | None:
+        return None if value is None else _absolute(value)
+
+    @field_validator("trusted_public_keys")
+    @classmethod
+    def _trusted_paths(cls, value: list[Path]) -> list[Path]:
+        return [_absolute(p) for p in value]
+
+    @model_validator(mode="after")
+    def _complete(self) -> ProvenanceConfig:
+        if not self.enabled:
+            return self
+        if self.signing_key_path is None and not self.trusted_public_keys:
+            raise ValueError("enabled provenance needs signing_key_path and/or trusted_public_keys")
+        if self.signing_key_path is not None:
+            missing = [
+                name
+                for name in ("signer_name", "build_repository", "build_commit")
+                if getattr(self, name) is None
+            ]
+            if missing:
+                raise ValueError(f"signing_key_path requires {', '.join(missing)}")
+        return self
+
+
+class SentinelJobConfig(AegisModel):
+    """Operator settings for attaching a Sentinel rights policy to every job output.
+
+    Policies are cooperating metadata: they bind only tools that consult them
+    (AEGIS's own artifact download does). They never open attack-lab gates.
+    """
+
+    enabled: StrictBool = False
+    issuer: Annotated[str, Field(min_length=1, max_length=256)] | None = None
+    enforcement_mode: Literal["cooperating_enforced", "advisory_notice"] = "cooperating_enforced"
+    allowed_actions: list[SentinelAction] | None = None
+    """Actions written as allowed. Every other action is written as explicitly denied."""
+    valid_days: Annotated[StrictInt, Field(ge=1, le=3650)] | None = None
+    allowed_caller_ids: (
+        Annotated[list[Annotated[str, Field(min_length=1, max_length=128)]], Field(min_length=1, max_length=64)]
+        | None
+    ) = None
+
+    @model_validator(mode="after")
+    def _complete(self) -> SentinelJobConfig:
+        if self.allowed_actions is not None and len(set(self.allowed_actions)) != len(self.allowed_actions):
+            raise ValueError("allowed_actions must not repeat an action")
+        if self.enabled and (self.issuer is None or self.allowed_actions is None):
+            raise ValueError("enabled sentinel needs issuer and an explicit allowed_actions list")
+        return self
+
+
 class AegisConfig(AegisModel):
     storage: StorageConfig = Field(default_factory=StorageConfig)
     attack_lab: AttackLabConfig = Field(default_factory=AttackLabConfig)
+    provenance: ProvenanceConfig = Field(default_factory=ProvenanceConfig)
+    sentinel: SentinelJobConfig = Field(default_factory=SentinelJobConfig)
     adapters: dict[str, AdapterSpec] = Field(default_factory=dict)
     source_path: Path | None = Field(default=None, exclude=True)
 
@@ -242,6 +322,24 @@ enabled = false
 # See docs/adr/0004-isolated-candidate-execution.md.
 [attack_lab.candidate_execution]
 enabled = false
+
+# Signing job outputs (aegis-provenance, Ed25519) and attaching Sentinel rights
+# policies are off by default. AEGIS never generates a signing key: create one
+# outside any Git checkout with `aegis-provenance keygen`, then configure it.
+# See docs/release/FINAL_API_CONTRACT.md.
+[provenance]
+enabled = false
+# signing_key_path = "/home/me/.config/aegis/signing-key.pem"   # absolute, mode 0600
+# trusted_public_keys = ["/home/me/.config/aegis/signing-key.pub.pem"]
+# signer_name = "AEGIS operator"
+# build_repository = "https://example.invalid/repo"
+# build_commit = "0123456789abcdef0123456789abcdef01234567"
+
+[sentinel]
+enabled = false
+# issuer = "AEGIS operator"
+# enforcement_mode = "cooperating_enforced"
+# allowed_actions = ["analyze"]                 # all other actions are denied
 
 # Protection backends are registered as [adapters.<name>]. None is registered by
 # default: requests for an unregistered backend fail with UNSUPPORTED_BACKEND.

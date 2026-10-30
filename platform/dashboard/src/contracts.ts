@@ -3,8 +3,9 @@ export type Artifact = { name: string; sha256: string; size_bytes: number; role:
 export type Failure = { code: string; message: string; details: Record<string, unknown> };
 export type Job = { job_id: string; status: Status; input_artifact: Artifact; output_artifacts: Artifact[]; error: Failure | null };
 export type Report = Job & { summary: string; limitations: string[]; evidence: { source: string; kind: string; summary: string; data: Record<string, unknown> }[]; attack_evaluations: unknown[] };
-export type Health = { status: string; version: string; backends: { name: string; available: boolean }[]; attack_lab_enabled: boolean; problems: string[] };
-export type LocalEvidence = { schema: "aegis.product.evidence.v1"; kind: "reconstruction" | "mirage" | "benchmark"; source_sha256: string; verification: string; summary: Record<string, unknown> };
+export type Health = { status: string; version: string; backends: { name: string; available: boolean; tasks: string[] }[]; attack_lab_enabled: boolean; problems: string[] };
+export type LegacyEvidence = { schema: "aegis.product.evidence.v1"; kind: "reconstruction" | "mirage" | "benchmark"; source_sha256: string; verification: string; summary: Record<string, unknown> };
+export type LocalEvidence = LegacyEvidence | ResearchEvidence;
 export const shaPattern = /^[0-9a-f]{64}$/;
 export const terminal = (status: Status) => status === "succeeded" || status === "failed";
 const object = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -46,10 +47,11 @@ export async function loadEvidence(text: string, expectedDigest: string): Promis
   if (digest !== expectedDigest) throw new Error("Summary SHA-256 mismatch; nothing was loaded");
   let value: unknown;
   try { value = JSON.parse(text); } catch { throw new Error("Invalid summary JSON; no content was loaded"); }
+  if (object(value) && value.schema === "aegis.product.evidence.v2") return parseResearch(value);
   if (!object(value) || value.schema !== "aegis.product.evidence.v1" || !["reconstruction", "mirage", "benchmark"].includes(String(value.kind)) ||
     value.verification !== "offline_hash_bindings_checked" || typeof value.source_sha256 !== "string" || !shaPattern.test(value.source_sha256) || !object(value.summary) ||
     Object.keys(value).some(k => !["schema", "kind", "source_sha256", "verification", "summary"].includes(k))) throw new Error("Unsupported summary; use the local evidence exporter");
-  const kind = value.kind as LocalEvidence["kind"];
+  const kind = value.kind as LegacyEvidence["kind"];
   const keys = summaryKeys[kind];
   if (Object.keys(value.summary).some(k => !keys.includes(k)) || keys.some(k => !(k in (value.summary as object)))) throw new Error("Unexpected or missing summary fields");
   if (kind === "reconstruction" && (value.summary.execution_performed !== false || value.summary.attack_effectiveness !== "not_established" || value.summary.provider !== "FakeOffline" || value.summary.behavioral_scoring !== "pending_authorized_core_runtime")) throw new Error("Unsupported reconstruction claims");
@@ -75,6 +77,27 @@ export async function loadEvidence(text: string, expectedDigest: string): Promis
   return value as LocalEvidence;
 }
 
+export function parseHealth(value: unknown, httpStatus: number): Health {
+  if (!object(value) || !["ok", "degraded"].includes(String(value.status)) || typeof value.version !== "string" ||
+    typeof value.attack_lab_enabled !== "boolean" || !strings(value.problems) || !Array.isArray(value.backends) ||
+    !value.backends.every(b => object(b) && typeof b.name === "string" && typeof b.available === "boolean" && strings(b.tasks))) {
+    throw new Error("Invalid health response");
+  }
+  // Core answers 200 for ok and 503 for degraded; anything else is inconsistent.
+  if ((value.status === "ok") !== (httpStatus === 200) || (value.status === "degraded") !== (httpStatus === 503) ||
+    (value.status === "degraded") !== (value.problems.length > 0)) throw new Error("Inconsistent health response");
+  return value as Health;
+}
+
+/** Health is public; a degraded API answers HTTP 503 with a valid report that must stay visible. */
+export async function fetchHealth(): Promise<Health> {
+  const response = await fetch("/healthz", { signal: AbortSignal.timeout(15000) });
+  let data;
+  try { data = await response.json(); } catch { throw new Error(`API returned HTTP ${response.status} without valid JSON`); }
+  if (response.status !== 200 && response.status !== 503) throw new Error(`API returned HTTP ${response.status}`);
+  return parseHealth(data, response.status);
+}
+
 export async function api(path: string, token: string, body?: unknown): Promise<unknown> {
   const response = await fetch(path, { method: body === undefined ? "GET" : "POST", signal: AbortSignal.timeout(15000),
     headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -84,3 +107,5 @@ export async function api(path: string, token: string, body?: unknown): Promise<
   if (!response.ok) throw new Error(object(data) && object(data.error) ? `${data.error.code}: ${data.error.message}` : `API returned HTTP ${response.status}`);
   return data;
 }
+import { parseResearch } from "./research.ts";
+import type { ResearchEvidence } from "./research.ts";

@@ -1,101 +1,88 @@
-# Devpost draft and operator checklist
+# Devpost submission copy — final operator review
 
-## Project name and tagline
-
-**AEGIS — traceable LLVM transformation and reconstruction research**
-
-A local workspace that pairs a real compiler transformation pipeline with honest,
-inspectable artifact evidence and bounded reconstruction experiments.
+**AEGIS — native transformation, verifiable artifacts, honest reconstruction research**
 
 ## Inspiration
 
-Software-protection demos often mix transformed code, security claims and
-illustrative dashboards. We wanted to make the boundary visible: what code was
-submitted, what tool ran, what artifacts resulted, what an experiment actually
-measured, and what remains unknown.
+A changed binary is not proof of protection. We built AEGIS to connect real
+compiler transformations with evidence a reviewer can inspect: what ran, which
+bytes shipped, whether behavior still matches, and what an attack actually found.
 
 ## What it does
 
-AEGIS accepts owned textual LLVM 22 IR through a React dashboard, a local FastAPI
-service or a CLI. Core invokes an explicitly registered Shield adapter, records
-pending/running/succeeded/failed states, computes artifact SHA-256 digests and
-produces a terminal report even when a job fails. The UI shows those real states,
-reports, digests and transformation counts with evidence-source labels.
+AEGIS accepts owned LLVM 22 IR through a React dashboard, local API or CLI.
+Shield rewrites eligible integer additions; Mirage adds retained arithmetic
+decoys. Core tracks real jobs and errors and computes artifact SHA-256. Optional
+Ed25519 signatures verify exact output bytes. Sentinel applies declared rights
+in cooperating tools, including artifact download decisions.
 
-The owned ImageLab application supplies reference-model tests and comparable
-native, IR-baseline and Shield variants. Separate Mirage tooling inserts retained
-unreachable arithmetic decoys. The Lab binds Ghidra evidence to authorized trial
-records and supports bounded, scripted offline reconstruction with privately
-archived evidence. Verified local exports let the dashboard present summaries
-without uploading hidden suites, request transcripts or candidate source.
-Offline provenance signing and cooperating policy tools are available as separate
-CLIs; they are not automatic job-signing or live-license services.
+Optional native C/C++ and Rust component workflows compile trusted source,
+protect eligible IR, relink and compare actual native outcomes. An experimental
+bounded controller selects configurations using observed correctness, retention,
+size and process timing. Its resistance remains UNMEASURED: cost feedback is not
+an autonomous proof of attack resistance.
 
-## How we built it
+## NVIDIA and Nebius integration
 
-Python/Pydantic contracts, local filesystem storage and a subprocess adapter
-protocol connect FastAPI/CLI clients to a C++ LLVM 22 plugin. React, TypeScript
-and Vite supply the local dashboard. CMake/CTest and pytest cover the native and
-Python components; real Chromium tests submit the owned fixture through the
-built UI and verify both successful reports and honest failures.
+The application workflow binds a real signed Core job to fresh native artifacts,
+Ghidra decompilation and an operator-approved NVIDIA Nemotron request through
+Nebius Token Factory. The exact model is `nvidia/Nemotron-3_5-Lightning`.
+Credentials stay in the operator runtime. Single-use approvals bind disclosure,
+model, parameters, token/spending limits and retention. Inference-only approval
+never compiles or executes returned candidates. Judges can prepare fresh owned
+inputs and reproduce the runtime CLI with their own approved account.
 
-## NVIDIA and Nebius — verified scope
+The final operator-run request explicitly disabled thinking and returned an
+accepted candidate envelope: 1,944 prompt + 1,585 completion = **3,529 tokens**,
+`finish_reason=stop`, with estimated cost **$0.000498**. Its immutable archive
+was independently verified. The candidate remains **behaviorally unscored**;
+no correctness or protective benefit is inferred from generation.
+Earlier baseline/Shield calls hit their 8,192-token caps and remain invalid_output
+(9,978/10,136 tokens; combined estimate $0.004157). These are usage estimates,
+not invoices. Dashboard imports are evidence display, not model requests.
 
-The merged Role B implementation includes a Nebius Token Factory chat-completion
-transport, bounded response parsing and offline tests for HTTP, usage, timeout,
-rate-limit and malformed-response behavior. Credentials are server-side runtime
-inputs; the public Lab workflow remains fail-closed for live inference.
+## What we demonstrated
 
-The transport’s configurable convenience model identifier names an NVIDIA
-Nemotron model family. A string is not evidence that the model was available,
-queried or executed. **No live Nebius request, NVIDIA model inference, NVIDIA GPU
-execution or hardware acceleration is verified by the handoff.** The retained
-experiments use `FakeOffline`, identify their scripted model, incur zero inference
-cost and never execute generated candidates. Do not claim an NVIDIA/Nebius
-integration prize criterion is satisfied without the organizer’s applicable rules
-and additional verified evidence. No live inference is enabled by this release.
+- Real Core/API/CLI/dashboard jobs, signed outputs, cooperating Sentinel decisions
+  and hash-checked downloads, including failure/tampering paths in Chromium.
+- reVC/librw: a fresh baseline compiles 293/308 TUs; selected 20 TUs protected with
+  each backend. Bounded comparisons of 13 function instances found zero mismatches;
+  a real linked Darkel component also passed. The game was not linked or run.
+- PhotoCraft: color passes 30/30 through both backends. Algo matched/protected
+  outcomes remain 726 pass, 1 upstream failure and 27 ignored; the workflow
+  truthfully reports failure rather than hiding that baseline problem.
+- Mattermost builds unprotected; its Go/TypeScript protection is explicitly
+  unsupported. Real Ghidra analysis completed for baseline/protected owned targets.
 
-Source: [merged Role B handoff](../../attack_lab/docs/role-b-delivery.md#nebius-and-rea)
-and the merged provider implementation. Any later Agent 2 evidence must name the
-exact artifact, model identity, authorization, endpoint, date, usage/cost and
-limitations before this section or the UI changes.
+These are component and finite-test results, not whole-application support or
+an established security property. Third-party research artifacts remain private.
 
-## Challenges and results
+## How we built it and what is next
 
-Registering the real LLVM adapter and exercising it through the UI closed the
-previous successful-job integration gap. Explicit failure handling, digest checks
-and removal of simulated security statistics make the product testable without
-inventing security evidence. The [validation record](VALIDATION.md) records the
-exact local test results and remaining unrun suites.
+C++/LLVM 22 passes, Python/Pydantic subprocess contracts, FastAPI, React/TypeScript,
+Ghidra, Ed25519 and Nebius Token Factory form the workflow. The main challenges
+were preserving exact artifact bindings, separating model transport from candidate
+correctness, and keeping failures and authorization boundaries explicit.
 
-Shield remains a prototype with no established security property. In Role B’s
-owned fixture experiment its IR changes optimized away and final baseline/Shield
-binary hashes matched. Mirage’s decoys survived the tested O2/linker-GC pipeline,
-but model target selection and reconstruction resistance were not measured.
-Candidate generation is distinct from behavioral scoring; matching Core scoring
-contracts are not merged into this checkout. The next milestones are that
-integration, owner-approved runtime containment and authorized live experiments.
+Next: validated isolated candidate scoring, independent held-out attack evidence,
+and broader application build integration. Supported release scope is Linux
+x86-64 with matching LLVM 22, not arbitrary binaries, Windows/macOS or web/mobile.
 
-## Built with
+## License and public links
 
-Python, Pydantic, FastAPI, uvicorn, C++, LLVM 22, CMake, React, TypeScript, Vite,
-pytest, CTest, Playwright, Ghidra (research workflow), Ed25519/cryptography.
-Nebius transport is offline-tested; NVIDIA inference remains unverified.
+Standard MIT License, copyright 2026 Youssef Bossabah, Karim Lahyani, Nevan Vu,
+and Riche Anyadike; the operator confirmed all four contributors' approval.
+Third-party notices remain independent. Publishing the final contents still
+requires separate operator approval.
 
-## Operator submission checklist
+- Source: https://github.com/Youssef-Boussabah/AEGIS — final approved revision/tag needed.
+- Test build: approved release asset URL needed; local source/test-build is not a public download.
+- Integrity: final detached SHA256SUMS URL needed.
+- Video: record the existing 165-second script; approved video URL needed.
+- Devpost/event URL and submission confirmation: operator to supply.
 
-- [ ] Review the exact branch diff and [validation](VALIDATION.md); reconcile Agent 1 architecture/status notes at integration.
-- [ ] Reproduce [the runbook](RUNBOOK.md) from a fresh checkout or extracted package on supported tools.
-- [ ] Review owner-approved artifact rights and ensure only the owned fixture appears publicly.
-- [ ] Review and approve a final [license](LICENSE-MIT-DRAFT.md); the draft does not grant rights or finalize the choice.
-- [ ] Run required tests/build and inspect the local package’s SHA-256 inventory.
-- [ ] Record and edit the [≤3-minute sequence](DEMO-SCRIPT.md); redact private reports/credentials. No video has been recorded by this task.
-- [ ] Replace submission placeholders with operator-approved repository, package and video links.
-- [ ] Confirm event eligibility, deadlines, team attribution and NVIDIA/Nebius track requirements from the actual organizer rules. No event-specific eligibility is asserted here.
-- [ ] Approve commit/push/PR and public release separately. Nothing has been committed, deployed or published by this task.
-- [ ] Upload only the reviewed package/public assets and complete Devpost after explicit operator approval.
-
-Public repository: **operator to supply approved release URL**. Testable artifact:
-local review package generated by `scripts/product.py package`. Video:
-**operator to record/publish after review**. These are pending submission actions,
-not fabricated public links.
+Use [the release review](RELEASE_CONTENTS_READY.md), [install guide](INSTALL.md),
+[runtime guide](JUDGE_RUNTIME_INFERENCE.md), [system results](FINAL_SYSTEM_TEST.md)
+and [video script](HACKATHON_SUBMISSION_READY.md#video-recording-script--165-seconds).
+No localhost address is a public demo link. Verify organizer/track requirements
+before submitting; eligibility has not been asserted by the engineering tests.

@@ -1,5 +1,17 @@
 # Approved Nebius inference (Agent 2)
 
+Latest operator-evidence follow-up: [NVIDIA research deliverable](nvidia-research-deliverable.md).
+An operator-supplied response now has separate, offline-verified post-hoc and
+dashboard-safe summaries. Two remaining invalid drafts use the actual baseline's
+8,192-token cap. The original experiment is unchanged; Agent 2 made no new calls.
+
+30 October integration follow-up: see [the operator-only runbook](operator-live-run.md)
+for commands from the current checkout, fresh approval handling and offline
+verification/export, [the v2 public-summary contract](public-summary.md) for React,
+and [current validation](agent2-validation.md). No genuine inference was authorized
+or conducted. The reproduction paths and counts below are historical evidence
+from the earlier worktree, not the current validation run.
+
 Status: implemented within Lab; live account verification and inference have **not
 been run**. No credits spent, generated candidates executed, packages installed,
 commits made, branches changed or pushes performed. This is REA-style controlled
@@ -182,8 +194,9 @@ PYTHONPATH=attack_lab/src /home/youss/Projects/aegis/.venv/bin/python -m aegis_l
   --output-dir /tmp/aegis-live-approved-baseline-1 --approve-live-inference
 ```
 
-For the full comparison, prepare/review separate equal-limit approvals for Shield
-and Mirage, put their absolute `approval` paths in the three plan targets, run
+For the full comparison, prepare/review three fresh equal-limit approvals,
+**including baseline** (the earlier single-target approval is consumed). Put their
+absolute `approval` paths in a new copy of the three-target plan, run
 `live_trial preflight` again, then:
 
 ```sh

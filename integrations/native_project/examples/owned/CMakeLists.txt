@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.20)
+project(aegis_native_owned LANGUAGES C CXX)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+add_executable(owned main.cpp kernels.cpp checksum.c policy.cpp)
+target_compile_features(owned PRIVATE c_std_11 cxx_std_17)
+target_compile_options(owned PRIVATE -Wall -Wextra -ffunction-sections -fdata-sections)
+target_link_options(owned PRIVATE -Wl,--gc-sections)

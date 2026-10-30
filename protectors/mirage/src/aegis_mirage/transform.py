@@ -45,8 +45,10 @@ def read(path: Path, limit: int = MAX_BYTES) -> bytes:
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         before = os.fstat(fd)
-        if not stat.S_ISREG(before.st_mode) or before.st_size > limit:
+        if not stat.S_ISREG(before.st_mode):
             raise MirageError("invalid_regular_input")
+        if before.st_size > limit:
+            raise MirageError("input_too_large")
         chunks = []
         total = 0
         while total <= limit:
@@ -131,9 +133,27 @@ def decoy_source(config: MirageConfig) -> tuple[bytes, tuple[str, ...]]:
     return ("\n".join(lines) + "\n").encode(), tuple(names)
 
 
+_TRIPLE_PART = re.compile(r"[A-Za-z0-9_.]+")
+
+
+def same_target_except_vendor(module: str, default: str) -> bool:
+    """True only for two four-part triples (arch-vendor-os-env) that differ in vendor alone."""
+    a, b = module.split("-"), default.split("-")
+    if len(a) != 4 or len(b) != 4 or not all(_TRIPLE_PART.fullmatch(p) for p in a + b):
+        return False
+    return a[0] == b[0] and a[2:] == b[2:] and a[1] != b[1]
+
+
 def transform(input_ir: Path, output_dir: Path, config: MirageConfig, *, clang="/usr/bin/clang",
-              llvm_link="/usr/bin/llvm-link", opt="/usr/bin/opt") -> dict:
-    """Produce module.ll and report.json in a new private directory; no code execution."""
+              llvm_link="/usr/bin/llvm-link", opt="/usr/bin/opt", runner=None, work_dir=None) -> dict:
+    """Produce module.ll and report.json in a new private directory; no code execution.
+
+    ``runner(argv, cwd) -> stdout bytes`` replaces the standalone tool runner. A
+    supervised caller (the AEGIS adapter) passes one that keeps tools in its own
+    process group, so the supervisor's timeout kills them. It must raise on a
+    nonzero exit. ``work_dir`` places the private scratch directory.
+    """
+    invoke = runner or run
     data = read(Path(input_ir))
     try:
         text = data.decode("utf-8")
@@ -145,13 +165,13 @@ def transform(input_ir: Path, output_dir: Path, config: MirageConfig, *, clang="
     if any(re.search(r"@" + re.escape(name) + r"\b", text) for name in names):
         raise MirageError("decoy_symbol_collision")
     toolchain = {}
-    with tempfile.TemporaryDirectory(prefix="aegis-mirage-") as scratch:
+    with tempfile.TemporaryDirectory(prefix="aegis-mirage-", dir=work_dir) as scratch:
         work = Path(scratch)
         for key, executable in (("clang", clang), ("llvm_link", llvm_link), ("opt", opt)):
             path = Path(executable)
             if not path.is_absolute():
                 raise MirageError("absolute_tool_path_required")
-            version = run([str(path), "--version"], work).decode("utf-8")
+            version = invoke([str(path), "--version"], work).decode("utf-8")
             match = re.search(r"(?:clang|LLVM) version (\d+\.\d+\.\d+)", version)
             if not match or int(match.group(1).split(".")[0]) != 22:
                 raise MirageError("matching_llvm22_required")
@@ -159,16 +179,28 @@ def transform(input_ir: Path, output_dir: Path, config: MirageConfig, *, clang="
         if len({t["version"] for t in toolchain.values()}) != 1:
             raise MirageError("toolchain_version_mismatch")
         (work / "input.ll").write_bytes(data)
-        run([opt, "-passes=verify", "-disable-output", "input.ll"], work)
+        invoke([opt, "-passes=verify", "-disable-output", "input.ll"], work)
         if config.enabled:
             (work / "decoys.c").write_bytes(source)
-            run([clang, "-std=c11", "-O1", "-S", "-emit-llvm", "decoys.c", "-o", "decoys.ll"], work)
+            invoke([clang, "-std=c11", "-O1", "-S", "-emit-llvm", "decoys.c", "-o", "decoys.ll"], work)
             sidecar = read(work / "decoys.ll").decode()
             triple = re.compile(r'^target triple = "([^"]+)"', re.M)
-            if triple.search(text).group(1) != triple.search(sidecar).group(1):
-                raise MirageError("target_triple_mismatch")
-            run([llvm_link, "-S", "input.ll", "decoys.ll", "-o", "module.ll"], work)
-            run([opt, "-passes=verify", "-disable-output", "module.ll"], work)
+            module_triple, decoy_triple = triple.search(text), triple.search(sidecar)
+            if module_triple is None or decoy_triple is None:
+                raise MirageError("llvm_module_required")
+            if module_triple.group(1) != decoy_triple.group(1):
+                if not same_target_except_vendor(module_triple.group(1), decoy_triple.group(1)):
+                    raise MirageError("target_triple_mismatch")
+                # Same target, different vendor spelling (rustc emits x86_64-unknown-linux-gnu,
+                # Clang defaults to x86_64-pc-linux-gnu): build the decoys for the module's triple.
+                invoke([clang, "-std=c11", "-O1", "-S", "-emit-llvm", f"--target={module_triple.group(1)}",
+                        "decoys.c", "-o", "decoys.ll"], work)
+                sidecar = read(work / "decoys.ll").decode()
+                decoy_triple = triple.search(sidecar)
+                if decoy_triple is None or decoy_triple.group(1) != module_triple.group(1):
+                    raise MirageError("target_triple_mismatch")
+            invoke([llvm_link, "-S", "input.ll", "decoys.ll", "-o", "module.ll"], work)
+            invoke([opt, "-passes=verify", "-disable-output", "module.ll"], work)
             output = read(work / "module.ll")
             for name in names:
                 if not re.search(rb"define [^\n]+@" + name.encode() + rb"\(", output):

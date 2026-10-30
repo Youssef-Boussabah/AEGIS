@@ -73,11 +73,44 @@ aegis-provenance verify build/output/protected.ll \
 
 Exit codes:
 - `0`: Verification succeeded
-- `1`: Verification failed (tampered artifact, invalid signature, or untrusted key)
-- `2`: Missing file or input error
+- `1`: Verification failed (tampered artifact, invalid signature, untrusted key, or a missing **artifact** — `ARTIFACT_NOT_FOUND`)
+- `2`: Missing manifest or trusted-key file, or input error
+
+`keygen` writes the private key with mode 0600 from creation (no chmod window)
+and refuses a path inside a Git work tree. Prefer an encrypted key; note that
+`--password` on the command line is visible to other local processes.
 
 ---
 
 ## 4. Watermark Research
 
 See [RESEARCH_WATERMARK.md](RESEARCH_WATERMARK.md) for detailed empirical evaluation of binary framing and LLVM IR watermarking, false-positive controls (0.0% FPR), collision metrics, and transformation retention.
+
+---
+
+## 5. Signing AEGIS Core job outputs (`aegis_provenance.jobs`)
+
+When the operator configures `[provenance]` (and optionally `[sentinel]`) in
+`aegis.toml`, the API and CLI register `JobAttestor.attest` as a Core
+post-success hook: every output of a succeeded job is signed with the
+operator's key, and a Sentinel policy is attached, **before** the job becomes
+terminal. Verification status is recomputed on request against the configured
+trusted keys and Core's recorded digests (`verified` / `failed` + error code /
+`unsigned`). AEGIS never generates a signing key and refuses unsafe key files.
+The job signer checks Git ancestry for both the configured key path and its
+resolved location, including symlinked parent directories and linked worktrees.
+A symlink final component is still refused; a safe parent alias outside Git
+and the artifact store remains usable.
+
+Setup (key outside any repository):
+
+```bash
+mkdir -m 700 ~/.config/aegis
+aegis-provenance keygen --private-key ~/.config/aegis/signing-key.pem \
+  --public-key ~/.config/aegis/signing-key.pub.pem
+```
+
+Then add the `[provenance]` / `[sentinel]` sections shown in
+[docs/release/FINAL_API_CONTRACT.md](../docs/release/FINAL_API_CONTRACT.md) §8,
+and check with `aegis verify <job_id>`. Design and limits: ARCHITECTURE.md §8a.
+`aegis_provenance.testing` makes ephemeral keys for tests only.

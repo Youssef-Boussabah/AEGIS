@@ -24,7 +24,7 @@
 | B Adversarial Lab and Mirage | #10 | Scope defined; no real reconstruction backend yet |
 | C Frontend and UI | #11 | Scope defined; implementation status not established |
 | D Signature and Sentinel | #12 | Implemented; offline signed provenance, Sentinel policies, watermark research (36 tests passed) |
-| External benchmark profiles | #7 | PhotoCraft, reVC and Mattermost selected; integrations not demonstrated |
+| External benchmark profiles | #7 | Component-level only (30 Oct 2026, [FULL_SYSTEM_VALIDATION.md](release/FULL_SYSTEM_VALIDATION.md)): PhotoCraft Rust crates and reVC/librw C++ TUs pass through real Shield/Shield+Mirage jobs with matching tests/differential checks; no whole-application protection; Mattermost (Go/TS) unsupported; no attack-resistance evaluation |
 
 ## Immediate integration blockers
 

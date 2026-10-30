@@ -15,7 +15,7 @@ from pathlib import Path
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictInt, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 
 from .canonical import canonical_json_bytes, canonical_sha256
 from .fake_provider import FakeProvider
@@ -23,7 +23,10 @@ from .disclosure import InferenceApproval
 from .inference import check_inference_approval, claim_approval, worst_request_cost
 from .manifest import Hash, TrialManifest
 from .private_evidence import PrivateEvidence
-from .provider import InferenceProvider, InferenceRequest, Message, ProviderError, ProviderIdentity, Usage
+from .provider import (
+    CompletionParser, LEGACY_COMPLETION_PARSER, NEBIUS_REASONING_COMPLETION_PARSER,
+    InferenceProvider, InferenceRequest, Message, ProviderError, ProviderIdentity, Usage,
+)
 from .reconstruction import (
     AuthorizationError, PreparedReconstruction, _checked_response, parse_candidate_envelope,
     prepare_reconstruction, prompt_token_bound, verify_effective_configuration, verify_prepared,
@@ -100,6 +103,7 @@ class ExperimentRecord(Strict):
     prepared_prompt_sha256: Hash
     prepared_request_sha256: Hash
     provider: ProviderIdentity
+    completion_parser: CompletionParser = LEGACY_COMPLETION_PARSER
     requested_model: str
     configuration: WorkflowConfig
     max_model_tokens: Annotated[StrictInt, Field(ge=1)]
@@ -129,6 +133,13 @@ class ExperimentRecord(Strict):
         "Artifact/report hashes establish consistency, not a signed chain of authorship.",
         "No candidate is compiled or executed; generated candidates are behaviorally unscored.",
     )
+
+    @field_validator("execution_performed", mode="before")
+    @classmethod
+    def exact_execution_boolean(cls, value):
+        if type(value) is not bool:
+            raise ValueError("strict_boolean_required")
+        return value
 
     @model_validator(mode="after")
     def _ledger(self):
@@ -173,6 +184,49 @@ def initial_messages(prepared):
             *prepared.request.messages[1:])
 
 
+def evaluate_response(prepared, configuration, response, *, input_bound, candidate_present,
+                      tool_calls, evidence_matches=True, late=False):
+    """Pure classification shared by generation and offline evidence verification.
+
+    A syntactically valid candidate is text only. This function never compiles it.
+    """
+    if not evidence_matches:
+        return "missing_or_mismatched_provider_evidence", None
+    if late:
+        return "deadline_exhausted", None
+    if response.usage_status == "invalid":
+        return "provider_usage_invalid", None
+    if response.usage and (response.usage.prompt_tokens > input_bound
+                           or response.usage.completion_tokens > prepared.request.max_output_tokens):
+        return "provider_usage_overrun", None
+    if response.model != prepared.request.model:
+        return "model_identity_mismatch", None
+    if response.refusal or response.finish_reason == "content_filter":
+        return "provider_refusal", None
+    if not (response.content_status == "present" and response.finish_reason == "stop"
+            and not response.unsupported_fields and not response.tool_calls):
+        return "invalid_output", None
+    source, error = parse_candidate_envelope(response.content, language=prepared.language,
+                                             interface=prepared.expected_interface)
+    if error is None:
+        return "generated_but_behaviorally_unscored", source
+    try:
+        action = Action.model_validate(parse_strict_json(response.content.encode("utf-8")))
+    except (ValueError, TypeError):
+        return "tool_or_output_invalid", None
+    if action.action == "inspect_target":
+        if action.action not in configuration.tools or tool_calls >= prepared.manifest.budget.max_tool_calls:
+            return "tool_budget_or_allowlist_refused", None
+        return "inspect_target", None
+    if action.action == "revise_candidate":
+        envelope = json.dumps({"schema": "aegis.lab.candidate.v1", "language": prepared.language,
+                               "interface": prepared.expected_interface, "source": action.source})
+        source, error = parse_candidate_envelope(envelope, language=prepared.language,
+                                                 interface=prepared.expected_interface)
+        return ("candidate_revision", source) if error is None else ("invalid_output", None)
+    return ("generated_but_behaviorally_unscored" if candidate_present else "invalid_output"), None
+
+
 ProviderFactory = Callable[[Callable[[str, bytes], None]], InferenceProvider]
 
 
@@ -203,6 +257,9 @@ def run_experiment(prepared: PreparedReconstruction, artifact: Path, output_dir:
 
     provider = provider_factory(sink)
     verify_effective_configuration(prepared, provider.identity)
+    completion_parser = getattr(provider, "completion_parser", LEGACY_COMPLETION_PARSER)
+    if completion_parser not in (LEGACY_COMPLETION_PARSER, NEBIUS_REASONING_COMPLETION_PARSER):
+        raise ValueError("unknown_completion_parser")
     live = provider.identity.external_disclosure
     if getattr(provider, "external_disclosure", False) and not live:
         raise AuthorizationError("inference_scope_mismatch")
@@ -312,52 +369,19 @@ def run_experiment(prepared: PreparedReconstruction, artifact: Path, output_dir:
             usage = response.usage
             if usage:
                 step_charge = max(reserve, usage.total_tokens)
-            outcome = "invalid_output"
-            if response_sha != response.body_sha256 or captured.get("request") != request_bytes:
-                outcome = "missing_or_mismatched_provider_evidence"
-            elif monotonic() > deadline:
-                outcome = "deadline_exhausted"
-            elif response.usage_status == "invalid":
-                outcome = "provider_usage_invalid"
-            elif usage and (usage.prompt_tokens > input_bound
-                            or usage.completion_tokens > request.max_output_tokens):
-                outcome = "provider_usage_overrun"
-            elif response.model != request.model:
-                outcome = "model_identity_mismatch"
-            elif response.refusal or response.finish_reason == "content_filter":
-                outcome = "provider_refusal"
-            elif (response.content_status == "present" and response.finish_reason == "stop"
-                  and not response.unsupported_fields and not response.tool_calls):
-                source, error = parse_candidate_envelope(response.content, language=prepared.language,
-                                                         interface=prepared.expected_interface)
-                if error is None:
-                    step_candidate = candidate = store.put(source.encode("utf-8"))
-                    outcome = "generated_but_behaviorally_unscored"
-                else:
-                    try:
-                        action = Action.model_validate(parse_strict_json(response.content.encode("utf-8")))
-                        if action.action == "inspect_target":
-                            if action.action not in configuration.tools or tool_calls >= prepared.manifest.budget.max_tool_calls:
-                                outcome = "tool_budget_or_allowlist_refused"
-                            else:
-                                tool_calls += 1
-                                outcome = "inspect_target"
-                                messages = (*messages, Message(role="assistant", content=response.content),
-                                            Message(role="user", content=prepared.request.messages[-1].content))
-                        elif action.action == "revise_candidate":
-                            envelope = json.dumps({"schema": "aegis.lab.candidate.v1", "language": prepared.language,
-                                                   "interface": prepared.expected_interface, "source": action.source})
-                            source, error = parse_candidate_envelope(envelope, language=prepared.language,
-                                                                     interface=prepared.expected_interface)
-                            if error is None:
-                                step_candidate = candidate = store.put(source.encode("utf-8"))
-                                outcome = "candidate_revision"
-                                messages = (*messages, Message(role="assistant", content=response.content),
-                                            Message(role="user", content="Revise using permitted evidence, or finish."))
-                        elif candidate is not None:
-                            outcome = "generated_but_behaviorally_unscored"
-                    except (ValueError, TypeError):
-                        outcome = "tool_or_output_invalid"
+            outcome, source = evaluate_response(prepared, configuration, response,
+                input_bound=input_bound, candidate_present=candidate is not None, tool_calls=tool_calls,
+                evidence_matches=response_sha == response.body_sha256 and captured.get("request") == request_bytes,
+                late=monotonic() > deadline)
+            if source is not None:
+                step_candidate = candidate = store.put(source.encode("utf-8"))
+            if outcome == "inspect_target":
+                tool_calls += 1
+                messages = (*messages, Message(role="assistant", content=response.content),
+                            Message(role="user", content=prepared.request.messages[-1].content))
+            elif outcome == "candidate_revision":
+                messages = (*messages, Message(role="assistant", content=response.content),
+                            Message(role="user", content="Revise using permitted evidence, or finish."))
         charged += step_charge
         steps.append(Step(index=index, request_sha256=request_sha, response_sha256=response_sha,
                           parsed_response_sha256=parsed_sha, reservation_tokens=reserve, charged_tokens=step_charge,
@@ -372,6 +396,7 @@ def run_experiment(prepared: PreparedReconstruction, artifact: Path, output_dir:
     record = ExperimentRecord(trial_id=prepared.trial_id, pair_id=prepared.pair_id, manifest_sha256=manifest_sha,
                               report_sha256=report_sha, artifact_sha256=prepared.artifact_sha256,
                               prepared_prompt_sha256=prepared.rendered_prompt_sha256, provider=provider.identity,
+                              completion_parser=completion_parser,
                               prepared_request_sha256=store.put(canonical_json_bytes(prepared.request.to_body())),
                               requested_model=prepared.request.model, configuration=configuration,
                               max_model_tokens=prepared.max_model_tokens, max_wall_seconds=prepared.max_wall_seconds,
@@ -399,15 +424,19 @@ def run_experiment(prepared: PreparedReconstruction, artifact: Path, output_dir:
     return record
 
 
-def verify_experiment(directory: Path) -> ExperimentRecord:
-    """Offline audit: reload every blob, reparse responses/candidates, recheck inputs."""
-    record = ExperimentRecord.model_validate(parse_strict_json(read_regular_file(directory / "experiment.json", MAX_RECORD_BYTES)))
+def verify_experiment(directory: Path, *, expected_sha256: str | None = None) -> ExperimentRecord:
+    """Offline audit using the recorded parser (v1 for historical unversioned records)."""
+    data = read_regular_file(directory / "experiment.json", MAX_RECORD_BYTES)
+    if expected_sha256 is not None and hashlib.sha256(data).hexdigest() != expected_sha256:
+        raise ValueError("experiment_record_digest_mismatch")
+    record = ExperimentRecord.model_validate(parse_strict_json(data))
     store = PrivateEvidence(directory / "private-evidence", create=False)
     manifest = TrialManifest.model_validate_json(store.get(record.manifest_sha256))
     artifact = store.get(record.artifact_sha256)
     original_request = parse_strict_json(store.get(record.prepared_request_sha256))
     prepared = prepare_reconstruction(manifest, store.get(record.report_sha256),
-                                      max_output_tokens=original_request["max_tokens"], top_p=original_request.get("top_p"))
+                                      max_output_tokens=original_request["max_tokens"], top_p=original_request.get("top_p"),
+                                      enable_thinking=original_request.get("chat_template_kwargs", {}).get("enable_thinking"))
     if prepared.request.to_body() != original_request:
         raise ValueError("prepared_request_mismatch")
     if (prepared.rendered_prompt_sha256 != record.prepared_prompt_sha256 or manifest.trial_id != record.trial_id
@@ -416,59 +445,102 @@ def verify_experiment(directory: Path) -> ExperimentRecord:
             or prepared.max_wall_seconds != record.max_wall_seconds
             or min(record.configuration.max_steps, prepared.max_attempts) != record.max_requests):
         raise ValueError("experiment_binding_mismatch")
-    if record.provider.external_disclosure:
+    verify_effective_configuration(prepared, record.provider)
+    live = record.provider.external_disclosure
+    if live:
+        from .bounded_provider import verify_model_evidence
+
         approval = InferenceApproval.model_validate(parse_strict_json(store.get(record.inference_approval_sha256)))
         check_inference_approval(prepared, record.configuration, approval, allow_live=True,
                                  now=approval.disclosure.valid_from)
         if record.provider.endpoint != approval.disclosure.endpoint or record.provider.provider != approval.disclosure.provider:
             raise ValueError("approval_provider_mismatch")
-        if record.catalogue_sha256:
-            store.get(record.catalogue_sha256)
-        if record.account_models_sha256:
-            store.get(record.account_models_sha256)
+        if record.steps and not (approval.disclosure.valid_from <= record.started_at < approval.request_deadline):
+            raise ValueError("experiment_outside_approval_window")
+        if record.catalogue_sha256 is not None or record.account_models_sha256 is not None:
+            verify_model_evidence(store.get(record.account_models_sha256), store.get(record.catalogue_sha256),
+                                  record.requested_model, context_tokens=approval.context_tokens,
+                                  input_price=approval.input_microusd_per_million,
+                                  output_price=approval.output_microusd_per_million)
         expected_spend = worst_request_cost(approval, prepared.request.max_output_tokens) * len(record.steps)
         if expected_spend != record.reserved_spend_microusd or expected_spend > approval.max_spend_microusd:
             raise ValueError("spend_ledger_mismatch")
+        estimated = (sum((s.usage.prompt_tokens * approval.input_microusd_per_million
+                         + s.usage.completion_tokens * approval.output_microusd_per_million
+                         + 999_999) // 1_000_000 for s in record.steps)
+                     if all(s.usage for s in record.steps) else None)
+        if record.estimated_reported_cost_microusd != estimated:
+            raise ValueError("estimated_cost_mismatch")
     messages = initial_messages(prepared)
+    candidate = None
+    tool_calls = 0
+    continuation = {"inspect_target", "candidate_revision"}
+    budget_stops = {"steps_exhausted", "deadline_exhausted", "context_budget_exhausted",
+                   "token_budget_exhausted", "spend_budget_exhausted"}
+    from .provider import PROVIDER_ERROR_CATEGORIES
+
+    error_states = {"provider_" + c for c in PROVIDER_ERROR_CATEGORIES} | {"interrupted", "provider_contract_violation"}
     for step in record.steps:
         request = parse_strict_json(store.get(step.request_sha256))
-        if request["model"] != record.requested_model:
-            raise ValueError("request_model_mismatch")
-        if record.provider.external_disclosure:
-            expected_request = InferenceRequest(**{**prepared.request.model_dump(), "messages": messages, "store": False})
-            if request != expected_request.to_body():
-                raise ValueError("live_conversation_mismatch")
-            if request.get("store") is not False or step.reservation_tokens != approval.context_tokens + request["max_tokens"]:
-                raise ValueError("live_request_policy_mismatch")
+        expected_request = InferenceRequest(**{**prepared.request.model_dump(), "messages": messages,
+                                              "store": False if live else prepared.request.store})
+        if request != expected_request.to_body():
+            raise ValueError("experiment_conversation_mismatch")
+        input_bound = approval.context_tokens if live else prompt_token_bound(messages)
+        reserve = input_bound + prepared.request.max_output_tokens
+        expected_charge = (0 if step.submission == "not_submitted" else
+                           max(reserve, step.usage.total_tokens if step.usage else 0))
+        if step.reservation_tokens != reserve or step.charged_tokens != expected_charge:
+            raise ValueError("step_reservation_mismatch")
+        if step.parsed_response_sha256 is not None and step.response_sha256 is None:
+            raise ValueError("parsed_response_without_wire_evidence")
         if step.response_sha256:
             raw = store.get(step.response_sha256)
-            if step.parsed_response_sha256:
-                from .provider import parse_completion
+        if step.parsed_response_sha256:
+            from .provider import parse_completion
 
-                parsed = parse_completion(raw)
-                if canonical_json_bytes(parsed.model_dump(mode="json")) != store.get(step.parsed_response_sha256):
-                    raise ValueError("response_provenance_mismatch")
-                if (step.usage, step.reported_model, step.system_fingerprint) != (parsed.usage, parsed.model, parsed.system_fingerprint):
-                    raise ValueError("step_accounting_mismatch")
-                if record.provider.external_disclosure:
-                    if step.outcome == "inspect_target":
-                        messages = (*messages, Message(role="assistant", content=parsed.content),
-                                    Message(role="user", content=prepared.request.messages[-1].content))
-                    elif step.outcome == "candidate_revision":
-                        messages = (*messages, Message(role="assistant", content=parsed.content),
-                                    Message(role="user", content="Revise using permitted evidence, or finish."))
-                if step.candidate_sha256:
-                    if step.outcome == "candidate_revision":
-                        proposed = Action.model_validate(parse_strict_json(parsed.content.encode("utf-8"))).source
-                    else:
-                        proposed, error = parse_candidate_envelope(parsed.content, language=prepared.language,
-                                                                    interface=prepared.expected_interface)
-                        if error:
-                            raise ValueError("candidate_envelope_mismatch")
-                    if proposed is None or store.get(step.candidate_sha256) != proposed.encode("utf-8"):
-                        raise ValueError("candidate_response_mismatch")
-        if step.candidate_sha256:
-            store.get(step.candidate_sha256).decode("utf-8")
+            parsed = parse_completion(raw, parser=record.completion_parser)
+            if canonical_json_bytes(parsed.model_dump(mode="json")) != store.get(step.parsed_response_sha256):
+                raise ValueError("response_provenance_mismatch")
+            if (step.usage, step.reported_model, step.system_fingerprint) != (parsed.usage, parsed.model, parsed.system_fingerprint):
+                raise ValueError("step_accounting_mismatch")
+            if step.submission != "completed":
+                raise ValueError("response_submission_mismatch")
+            outcome, proposed = evaluate_response(prepared, record.configuration, parsed,
+                input_bound=input_bound, candidate_present=candidate is not None, tool_calls=tool_calls,
+                late=step.outcome == "deadline_exhausted")
+            if outcome != step.outcome:
+                raise ValueError("step_outcome_mismatch")
+            if proposed is not None:
+                proposed_sha = hashlib.sha256(proposed.encode("utf-8")).hexdigest()
+                if step.candidate_sha256 != proposed_sha or store.get(proposed_sha) != proposed.encode("utf-8"):
+                    raise ValueError("candidate_response_mismatch")
+                candidate = proposed_sha
+            elif step.candidate_sha256 is not None:
+                raise ValueError("unexpected_candidate")
+            if outcome == "inspect_target":
+                tool_calls += 1
+                messages = (*messages, Message(role="assistant", content=parsed.content),
+                            Message(role="user", content=prepared.request.messages[-1].content))
+            elif outcome == "candidate_revision":
+                messages = (*messages, Message(role="assistant", content=parsed.content),
+                            Message(role="user", content="Revise using permitted evidence, or finish."))
+        elif (step.outcome not in error_states or step.usage is not None
+              or step.reported_model is not None or step.system_fingerprint is not None or step.candidate_sha256 is not None):
+            raise ValueError("unsubstantiated_step_result")
+        if step.index < len(record.steps) and step.outcome not in continuation:
+            raise ValueError("request_after_terminal_outcome")
+    if record.candidate_sha256 != candidate:
+        raise ValueError("selected_candidate_mismatch")
+    if record.steps:
+        last = record.steps[-1].outcome
+        allowed = budget_stops if last in continuation else {last}
+    else:
+        allowed = budget_stops | {"interrupted", "model_verification_failed"} | {
+            "model_verification_" + c for c in PROVIDER_ERROR_CATEGORIES}
+    if record.generation_status not in allowed:
+        raise ValueError("generation_status_mismatch")
+
     return record
 
 

@@ -1,4 +1,9 @@
-"""FastAPI application exposing job creation, job status, reports and health."""
+"""FastAPI application exposing jobs, reports, health, signatures and Sentinel policies.
+
+Signing and Sentinel policy creation run inside the job (a Core post-success
+hook from aegis_provenance.jobs). The routes below only read and verify; they
+never sign. See docs/release/FINAL_API_CONTRACT.md.
+"""
 
 from __future__ import annotations
 
@@ -20,6 +25,7 @@ from aegis_core.errors import AegisError
 from aegis_core.health import HealthReport, check_health
 from aegis_core.models import (
     ID_PATTERN,
+    SHA256_PATTERN,
     AegisModel,
     ErrorCode,
     ErrorInfo,
@@ -28,6 +34,14 @@ from aegis_core.models import (
     ProtectionReport,
 )
 from aegis_core.orchestrator import Orchestrator
+from aegis_provenance.jobs import (
+    API_CALLER_ID,
+    AttestationConfigView,
+    JobAttestationStatus,
+    JobAttestor,
+    SentinelDecision,
+)
+from aegis_sentinel.models import PermissionAction
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +58,15 @@ STATUS_BY_CODE: dict[ErrorCode, int] = {
     ErrorCode.JOB_NOT_FOUND: 404,
     ErrorCode.JOB_CONFLICT: 409,
     ErrorCode.REPORT_NOT_READY: 409,
+    ErrorCode.ARTIFACT_NOT_FOUND: 404,
+    ErrorCode.POLICY_DENIED: 403,
+    ErrorCode.ARTIFACT_INTEGRITY_ERROR: 409,
 }
 
 JobId = Annotated[str, Path(pattern=ID_PATTERN, description="32-char lowercase hex job id")]
+ArtifactSha = Annotated[
+    str, Path(pattern=SHA256_PATTERN, description="SHA-256 of a registered output artifact")
+]
 
 
 class InlineInput(AegisModel):
@@ -61,6 +81,13 @@ class CreateJobRequest(AegisModel):
 
 class ErrorResponse(AegisModel):
     error: ErrorInfo
+
+
+class EvaluateRequest(AegisModel):
+    action: PermissionAction
+    caller_id: Annotated[str, Field(min_length=1, max_length=128)] | None = None
+    """Asserted by the caller; not authenticated."""
+    environment: Annotated[str, Field(min_length=1, max_length=128)] | None = None
 
 
 def _error_response(info: ErrorInfo, status_code: int | None = None) -> JSONResponse:
@@ -96,6 +123,11 @@ def create_app(config: AegisConfig | None = None, *, api_token: str | None = Non
         api_token = os.environ.get(TOKEN_ENV_VAR) or None
     orchestrator = Orchestrator(config)
     orchestrator.store.initialize()
+    # Loads the operator's signing key and trusted keys; a broken signing
+    # configuration raises CONFIG_INVALID here, so the API never starts unsigned
+    # by accident.
+    attestor = JobAttestor.from_config(config, orchestrator.store, clock=orchestrator.clock)
+    orchestrator.post_success_hooks.append(attestor.attest)
 
     app = FastAPI(
         title="AEGIS API",
@@ -111,6 +143,7 @@ def create_app(config: AegisConfig | None = None, *, api_token: str | None = Non
         },
     )
     app.state.orchestrator = orchestrator
+    app.state.attestor = attestor
 
     @app.exception_handler(AegisError)
     async def _aegis_error(_: Request, exc: AegisError) -> JSONResponse:
@@ -185,5 +218,95 @@ def create_app(config: AegisConfig | None = None, *, api_token: str | None = Non
     )
     def get_report(job_id: JobId) -> ProtectionReport:
         return orchestrator.get_report(job_id)
+
+    # ------------------------------------------------- signatures and policies
+
+    @app.get(
+        "/v1/attestation",
+        response_model=AttestationConfigView,
+        dependencies=auth,
+        tags=["attestation"],
+    )
+    def attestation_config() -> AttestationConfigView:
+        """Signing and Sentinel configuration: key ids only, never key material or paths."""
+        return attestor.config_view()
+
+    @app.get(
+        "/v1/jobs/{job_id}/attestation",
+        response_model=JobAttestationStatus,
+        dependencies=auth,
+        tags=["attestation"],
+    )
+    def job_attestation(job_id: JobId) -> JobAttestationStatus:
+        """Signature verification and policy status, recomputed on every request."""
+        return attestor.status(orchestrator.get_job(job_id))
+
+    @app.get(
+        "/v1/jobs/{job_id}/artifacts/{sha256}",
+        response_class=Response,
+        dependencies=auth,
+        tags=["attestation"],
+        responses={200: {"content": {"application/octet-stream": {}}}},
+    )
+    def download_artifact(job_id: JobId, sha256: ArtifactSha) -> Response:
+        """Exact bytes of a registered output, hash-checked before anything is sent."""
+        job, artifact, data = orchestrator.read_output(job_id, sha256)
+        decision = attestor.authorize_release(job, artifact, caller_id=API_CALLER_ID)
+        return Response(
+            content=data,
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f'attachment; filename="{artifact.name}"',
+                "X-AEGIS-Artifact-SHA256": artifact.sha256,
+                "X-AEGIS-Sentinel-Decision": decision,
+                "X-Content-Type-Options": "nosniff",
+                "Cache-Control": "no-store",
+            },
+        )
+
+    @app.get(
+        "/v1/jobs/{job_id}/artifacts/{sha256}/manifest",
+        response_class=Response,
+        dependencies=auth,
+        tags=["attestation"],
+        responses={200: {"content": {"application/json": {}}}},
+    )
+    def artifact_manifest(job_id: JobId, sha256: ArtifactSha) -> Response:
+        job, artifact = orchestrator.find_output(job_id, sha256)
+        return Response(
+            content=attestor.manifest_bytes(job, artifact),
+            media_type="application/json",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get(
+        "/v1/jobs/{job_id}/artifacts/{sha256}/policy",
+        response_class=Response,
+        dependencies=auth,
+        tags=["attestation"],
+        responses={200: {"content": {"application/json": {}}}},
+    )
+    def artifact_policy(job_id: JobId, sha256: ArtifactSha) -> Response:
+        job, artifact = orchestrator.find_output(job_id, sha256)
+        return Response(
+            content=attestor.policy_bytes(job, artifact),
+            media_type="application/json",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.post(
+        "/v1/jobs/{job_id}/artifacts/{sha256}/evaluate",
+        response_model=SentinelDecision,
+        dependencies=auth,
+        tags=["attestation"],
+    )
+    def evaluate_artifact_action(
+        job_id: JobId, sha256: ArtifactSha, body: EvaluateRequest
+    ) -> SentinelDecision:
+        """Sentinel decision for a cooperating tool. A denial is a 200 decision."""
+        job, artifact = orchestrator.find_output(job_id, sha256)
+        return attestor.evaluate(
+            job, artifact, body.action, caller_id=body.caller_id, environment=body.environment
+        )
 
     return app

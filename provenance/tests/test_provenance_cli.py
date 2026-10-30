@@ -65,3 +65,15 @@ def test_cli_full_flow(tmp_path: Path, monkeypatch, capsys):
     assert rc == 1
     err = capsys.readouterr().err
     assert "VERIFICATION FAILED: [ARTIFACT_TAMPERED]" in err
+
+
+def test_keygen_refuses_private_key_inside_git_work_tree(tmp_path: Path, capsys):
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    (repo / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+    rc = main([
+        "keygen", "--private-key", str(repo / "k.pem"), "--public-key", str(tmp_path / "k.pub.pem"),
+    ])
+    assert rc == 2
+    assert not (repo / "k.pem").exists()
+    assert "Git work tree" in capsys.readouterr().err

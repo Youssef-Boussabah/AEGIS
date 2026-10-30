@@ -88,6 +88,12 @@ class ErrorCode(StrEnum):
     # The isolation runtime failed (start, enforcement, protocol, cleanup). An
     # infrastructure failure, never a candidate outcome.
     SANDBOX_FAILED = "SANDBOX_FAILED"
+    # A registered output artifact, or its signed manifest / Sentinel policy, does
+    # not exist for this job (details.kind names which).
+    ARTIFACT_NOT_FOUND = "ARTIFACT_NOT_FOUND"
+    # A cooperating Sentinel policy denies the action, or the policy that should
+    # govern it is missing, invalid or modified (fail closed).
+    POLICY_DENIED = "POLICY_DENIED"
     STORAGE_ERROR = "STORAGE_ERROR"
     INTERNAL_ERROR = "INTERNAL_ERROR"
 

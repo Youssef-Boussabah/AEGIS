@@ -8,6 +8,9 @@ Layout under the store root::
     jobs/<job_id>/outputs/          adapter output directory
     jobs/<job_id>/adapter/          adapter request and captured logs
     jobs/<job_id>/work/             adapter working directory
+    jobs/<job_id>/attestation/      optional (0700): attestation.json, signed
+                                    manifests and Sentinel policies per output,
+                                    written by aegis_provenance.jobs
 
 All JSON writes are atomic (write to a temp file, then rename).
 """
@@ -18,6 +21,7 @@ import hashlib
 import os
 import re
 import shutil
+import stat
 import tempfile
 import uuid
 from pathlib import Path
@@ -105,6 +109,16 @@ class LocalArtifactStore:
 
     def work_dir(self, job_id: str) -> Path:
         return self.job_dir(job_id) / "work"
+
+    def attestation_dir(self, job_id: str) -> Path:
+        return self.job_dir(job_id) / "attestation"
+
+    def ensure_attestation_dir(self, job_id: str) -> Path:
+        path = self.attestation_dir(job_id)
+        path.mkdir(mode=0o700, exist_ok=True)
+        if path.is_symlink() or not path.is_dir():
+            raise AegisError(ErrorCode.STORAGE_ERROR, "Attestation directory is not a directory.")
+        return path
 
     def create_job_dir(self, job_id: str) -> Path:
         self.initialize()
@@ -222,6 +236,69 @@ class LocalArtifactStore:
             storage_path=resolved.relative_to(self.root).as_posix(),
             created_at=utcnow(),
         )
+
+    def read_bounded(self, path: Path, *, max_bytes: int) -> bytes:
+        """Read a regular, non-symlink file inside the store, at most `max_bytes`.
+
+        Raises FileNotFoundError when absent and AegisError(STORAGE_ERROR) when the
+        path escapes the store, is not a regular file or is too large.
+        """
+        resolved_parent = path.parent.resolve()
+        if not resolved_parent.is_relative_to(self.root):
+            raise AegisError(ErrorCode.STORAGE_ERROR, "Path escapes the store root.")
+        fd = os.open(resolved_parent / path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode):
+                raise AegisError(ErrorCode.STORAGE_ERROR, f"{path.name!r} is not a regular file.")
+            if info.st_size > max_bytes:
+                raise AegisError(
+                    ErrorCode.STORAGE_ERROR,
+                    f"{path.name!r} exceeds the {max_bytes}-byte read limit.",
+                    {"size_bytes": info.st_size, "max_bytes": max_bytes},
+                )
+            chunks: list[bytes] = []
+            total = 0
+            while chunk := os.read(fd, _CHUNK):
+                total += len(chunk)
+                if total > max_bytes:
+                    raise AegisError(
+                        ErrorCode.STORAGE_ERROR, f"{path.name!r} grew past the read limit."
+                    )
+                chunks.append(chunk)
+            return b"".join(chunks)
+        finally:
+            os.close(fd)
+
+    def read_artifact_verified(self, artifact: Artifact, *, max_bytes: int) -> bytes:
+        """Return an artifact's bytes only if they still hash to the recorded SHA-256.
+
+        The bytes are read once, then hashed; callers serve exactly the bytes that
+        were checked. A symlink, missing file or changed content fails explicitly.
+        """
+        try:
+            # Unresolved path: read_bounded refuses a symlink as the final component.
+            data = self.read_bounded(self.root / artifact.storage_path, max_bytes=max_bytes)
+        except FileNotFoundError:
+            raise AegisError(
+                ErrorCode.ARTIFACT_INTEGRITY_ERROR,
+                f"Stored artifact {artifact.name!r} is missing.",
+                {"expected_sha256": artifact.sha256},
+            ) from None
+        except OSError as exc:
+            raise AegisError(
+                ErrorCode.ARTIFACT_INTEGRITY_ERROR,
+                f"Stored artifact {artifact.name!r} cannot be read safely ({exc.strerror}).",
+                {"expected_sha256": artifact.sha256},
+            ) from None
+        actual = hashlib.sha256(data).hexdigest()
+        if actual != artifact.sha256 or len(data) != artifact.size_bytes:
+            raise AegisError(
+                ErrorCode.ARTIFACT_INTEGRITY_ERROR,
+                f"Stored artifact {artifact.name!r} no longer matches its recorded SHA-256.",
+                {"expected_sha256": artifact.sha256, "actual_sha256": actual},
+            )
+        return data
 
     # ------------------------------------------------------------------- json
 
