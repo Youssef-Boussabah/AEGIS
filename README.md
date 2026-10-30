@@ -1,121 +1,110 @@
 # AEGIS
 
-AEGIS is an open-source software-protection platform intended to work across desktop software, websites and web apps, mobile apps, games, backend services, embedded software and authorized console builds through **separate compatible protection backends**. Its current working foundation is a local orchestration platform and a prototype LLVM 22 textual-IR protection backend. No general cross-platform protection or measured reverse-engineering resistance is established.
+AEGIS is a local software transformation and evaluation research preview. Submit
+**trusted textual LLVM 22 IR**, run the real Shield adapter, and inspect a job’s
+status, SHA-256 artifact digests, transformation claims and limitations through
+the dashboard, API or CLI. **Shield has no established security property.**
+Arbitrary binaries, websites, mobile apps and consoles need future backends.
 
-It takes an input artifact and a protection policy, then runs a registered
-backend through a subprocess adapter. It records SHA-256 hashes and evidence
-for every artifact, and writes a report for every finished job, including
-failed ones.
+## Start the supported product
 
-## Status
+Prerequisites: Linux/POSIX, Python ≥3.11, uv, Node ≥22.18 and npm, matching
+LLVM/Clang **22.x** tools (`llvm-config`, `clang`, `clang++`, `opt`, `llvm-link`,
+`llvm-nm`), CMake and Ninja on PATH. The verified local toolchain and exact test
+results are in [release validation](docs/release/VALIDATION.md).
+No startup command installs global packages or binds a public address.
 
-| Component | Path | State |
+From the repository root, explicitly install repository-local dependencies:
+
+```sh
+sh scripts/setup-python.sh
+uv pip install --python .venv/bin/python -c core/requirements-dev.lock \
+  -e './attack_lab[dev]' -e ./protectors/mirage
+npm --prefix platform/dashboard ci
+```
+
+Build Shield, ImageLab and the dashboard, register the actual adapter in a private
+scratch config, and compile the checked-in owned fixture:
+
+```sh
+.venv/bin/python scripts/product.py build
+.venv/bin/python scripts/product.py configure
+.venv/bin/python scripts/product.py serve
+```
+
+Open **http://127.0.0.1:5173**. Choose **Protect LLVM IR**, upload
+`/tmp/aegis-product/annotated.ll`, and submit. The dashboard polls Core and renders
+the terminal report, including failure details. A successful fixture job reports
+one transformed arithmetic site. This measures transformation, not protection
+against an attack. Ctrl-C stops both local services. Existing configs are never
+overwritten. Use `--workspace /tmp/another-aegis-demo` consistently for a fresh run.
+
+[Full demonstration runbook](docs/release/RUNBOOK.md) includes ImageLab, local
+research imports, authentication, diagnostics and the review package.
+
+## Feature and limitation matrix
+
+| Component | Working implementation | Boundary |
 | --- | --- | --- |
-| Core contracts, local store, orchestrator | `core/` | implemented, tested |
-| HTTP API (FastAPI) | `platform/api/` | implemented, tested |
-| CLI (`aegis`) | `platform/cli/` | implemented, tested |
-| AEGIS Shield LLVM pass | `protectors/llvm/` | prototype, tested on its own; **no established security property** |
-| Shield ↔ core adapter | `protectors/llvm/adapter/` | implemented; explicit registration, textual IR and LLVM 22 |
-| ImageLab controlled test harness | `demo/image_processor/` | implemented C++ app and baseline/direct/external IR comparisons |
-| Adversarial Lab, Mirage, Signature, Sentinel, Dashboard | `attack_lab/`, `protectors/mirage/`, `provenance/`, `sentinel/`, `platform/dashboard/` | planned; workstream issues created |
+| Core / API / CLI | Local jobs, adapter execution, hashes, terminal reports and explicit errors | Explicit registration required; local filesystem store |
+| Dashboard | Real upload, polling, reports/download, job-ID reload, verified local summary import | No historical job-list API, telemetry or license counts |
+| LLVM Shield | LLVM 22 textual-IR arithmetic rewriting through the real adapter | Prototype; zero-transform jobs fail; optimization can undo rewrites; no established security property |
+| ImageLab | Owned image app, reference tests, native / IR baseline / Shield comparisons | Local measurements and sampled correctness only |
+| Mirage | LLVM 22 / ELF retained unreachable arithmetic decoys; standalone transformer | Final retention needs checking; no web honeypots or measured attack resistance |
+| Adversarial Lab | Bound Ghidra evidence, offline scripted reconstruction, private evidence verification, scoring interfaces | Core execution dependency unmerged here; no verified real candidate execution or live inference |
+| Nebius / NVIDIA | Offline-tested Nebius chat-completion transport; configurable model ID | No verified live request or NVIDIA GPU run; live inference remains disabled |
+| Provenance / Sentinel | Separate offline Ed25519 signing/verification and cooperating rights-policy CLIs | No automatic job signing; advisory metadata does not force external tools to cooperate |
+| Other ecosystems | Future compatible backends | Arbitrary binaries, web/mobile and console protection unsupported today |
 
-AEGIS ships with **no registered protection backend**. Until an adapter is
-registered in `aegis.toml`, `aegis protect` fails with `UNSUPPORTED_BACKEND`.
-For real Shield jobs, follow the [adapter registration and CLI instructions](protectors/llvm/adapter/README.md).
-Zero-transform runs fail explicitly; a successful transformation establishes no
-security guarantee.
+The [merged Role B handoff](attack_lab/docs/role-b-delivery.md) is the source for
+its research claims. In its one owned `signal.c` experiment, final baseline and
+Shield binary digests were identical after optimization. Mirage retained three
+decoys, but AI target-selection effects and behavioral reconstruction resistance
+were not measured. See that handoff for commands, hardware, samples and limits.
 
-## Start here
+## Tests and reproducible review package
 
-- [AEGIS User Guide](docs/AEGIS_USER_GUIDE.pdf) — project introduction, four roles and first steps.
-- [AEGIS Technical Documentation](docs/AEGIS_TECHNICAL_DOCUMENTATION.pdf) — architecture, contracts, runbook and detailed briefs for the same four roles. Historical implementation evidence remains attributed to `c995857`.
-- [Four engineering roles](docs/TEAM_WORKSTREAMS.md) — A Core/Shield/Integration; B Lab/Mirage; C Frontend; D Signature/Sentinel. No person assignments.
-- [Contributing](CONTRIBUTING.md) — branch map, checkout, synchronization and review workflow.
-- [Project status](docs/PROJECT_STATUS.md) — historical evidence, pending work, and update protocol.
-- [Contributor/agent rules](AGENTS.md) and [architecture](ARCHITECTURE.md) — current repository guidance.
+Install the optional local browser once, then run the required product checks:
 
-The implementation and tests are authoritative for behavior. Current work is tracked in GitHub issues [#9–#12](https://github.com/Youssef-Boussabah/AEGIS/issues) and external evaluation in [#7](https://github.com/Youssef-Boussabah/AEGIS/issues/7).
-
-## Repository layout
-
-```
-core/               aegis_core: contracts, store, orchestrator, adapter runner
-  docs/adapter-protocol.md
-platform/api/       aegis_api: FastAPI service
-platform/cli/       aegis_cli: `aegis` command
-protectors/llvm/    AEGIS Shield LLVM pass plugin and adapter
-demo/image_processor/ Controlled C++ image-processing benchmark
-attack_lab/         Adversarial evaluation (planned)
-protectors/mirage/ Defensive decoys (planned)
-provenance/         Signed provenance (planned)
-sentinel/           Rights notices (planned)
-platform/dashboard/ Frontend interface (planned)
-docs/adr/           architecture decision records
-AGENTS.md           rules for contributors and agents (read first)
-ARCHITECTURE.md     how the pieces fit together, and open issues
+```sh
+PLAYWRIGHT_BROWSERS_PATH=/tmp/aegis-product-browsers \
+  npm --prefix platform/dashboard exec -- playwright install chromium
+PLAYWRIGHT_BROWSERS_PATH=/tmp/aegis-product-browsers \
+  .venv/bin/python scripts/product.py verify
 ```
 
-## Setup
+Stop a manually started product server before `verify`; the browser suite starts
+and stops its own servers. Missing native/browser prerequisites fail explicitly.
+Lab’s **offline** suite labels skips as **NOT RUN**; it does not substitute for
+strict Core+Lab integration. The [CI integration plan](docs/release/CI-INTEGRATION.md)
+records the merge prerequisites and future strict job.
 
-The Python side needs Python ≥ 3.11 (verified with 3.14.7) and
-[uv](https://docs.astral.sh/uv/). From the repository root:
-
-```bash
-uv venv .venv
-uv pip install --python .venv/bin/python \
-  -c core/requirements-dev.lock \
-  -e './core[dev]' -e './platform/api[dev]' -e './platform/cli[dev]'
+```sh
+.venv/bin/python scripts/product.py package
 ```
 
-`core/requirements-dev.lock` pins the third-party versions the tests were
-verified against. Install the three packages together, because `aegis-core`
-isn't published to an index.
+This produces `/tmp/aegis-product/aegis-local-review.tar.gz`: source, the built
+dashboard and a per-file SHA-256 inventory. No runtime store, private research
+archive, credentials, virtualenv, node_modules or native plugin is included.
+It is a local review package, not a published release or a portable binary build.
+Build native components on the recipient’s matching LLVM 22 installation.
+The [license draft](docs/release/LICENSE-MIT-DRAFT.md) awaits owner approval;
+no final open-source license is granted by that draft.
 
-The LLVM Shield needs LLVM/Clang ≥ 22 (verified with 22.1.8), CMake and
-Ninja. See [protectors/llvm/README.md](protectors/llvm/README.md).
+## Documentation
 
-## Tests
+- [Release runbook](docs/release/RUNBOOK.md), [validation](docs/release/VALIDATION.md),
+  [demo video script](docs/release/DEMO-SCRIPT.md), [Devpost draft/checklist](docs/release/SUBMISSION.md).
+- [Core](core/README.md), [API contract](platform/api/README.md), [CLI](platform/cli/README.md),
+  [Shield adapter](protectors/llvm/adapter/README.md), [dashboard](platform/dashboard/README.md).
+- [ImageLab](demo/image_processor/README.md), [Lab](attack_lab/README.md),
+  [Mirage](protectors/mirage/README.md), [Provenance](provenance/README.md), [Sentinel](sentinel/README.md).
+- [Contributor rules](AGENTS.md), [architecture](ARCHITECTURE.md),
+  [workstreams](docs/TEAM_WORKSTREAMS.md), [contributing](CONTRIBUTING.md).
+  Older PDF guides and project-status notes are historical; current code,
+  module handoffs and this release’s validation record determine present behavior.
 
-```bash
-.venv/bin/pytest                                   # Core, API and CLI only
-cmake -S protectors/llvm -B /tmp/aegis-shield-build -G Ninja \
-  -DLLVM_DIR="$(llvm-config --cmakedir)" \
-  -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release
-cmake --build /tmp/aegis-shield-build
-ctest --test-dir /tmp/aegis-shield-build --output-on-failure
-```
-
-For full Python + adapter regression coverage run:
-
-```bash
-.venv/bin/python -m pytest core/tests platform/api/tests platform/cli/tests protectors/llvm/adapter/tests -q
-```
-
-ImageLab is built separately with CMake; see [ImageLab README](demo/image_processor/README.md) and the Technical Documentation §09. Compiler tests may require an explicitly supplied matching LLVM 22 plugin path.
-
-## Usage
-
-```bash
-.venv/bin/aegis init            # write ./aegis.toml and create ./.aegis/
-.venv/bin/aegis inspect         # health check
-# register a backend under [adapters.<name>] in aegis.toml, then:
-.venv/bin/aegis protect <file> --backend <name>
-.venv/bin/aegis report <job_id>
-.venv/bin/aegis-api             # HTTP API on 127.0.0.1:8000
-```
-
-Details:
-
-- [core/README.md](core/README.md): configuration, contracts, error codes
-- [platform/api/README.md](platform/api/README.md): API endpoints
-- [platform/cli/README.md](platform/cli/README.md): CLI commands and exit codes
-- [core/docs/adapter-protocol.md](core/docs/adapter-protocol.md): how to write a backend adapter
-
-## Security notes
-
-- Adapters run without a shell, with a timeout and a minimal environment.
-- The API binds to loopback by default.
-- Attack-lab tasks need an operator config switch **and** a per-request
-  authorization record.
-
-See ARCHITECTURE.md §6 for the full requirements.
+Adapters run through Core’s bounded subprocess protocol; reports distinguish
+orchestrator observations from adapter claims. The local API and dashboard bind
+to loopback. Attack-lab API tasks still require both the config switch and a
+per-request authorization record; the product launcher leaves the switch disabled.

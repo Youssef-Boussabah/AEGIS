@@ -62,6 +62,13 @@ jobs:
           sudo ./llvm.sh 22
           sudo apt-get install -y cmake ninja-build llvm-22-dev clang-22
           echo "LLVM_DIR=$(llvm-config-22 --cmakedir)" >> "$GITHUB_ENV"
+          echo "/usr/lib/llvm-22/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: platform/dashboard/package-lock.json
 
       - name: Install Python packages (adapter drives core)
         run: sh scripts/setup-python.sh
@@ -84,6 +91,60 @@ jobs:
             --shield-opt "$(command -v opt-22)" \
             --shield-clang "$(command -v clang-22)"
 
+      - name: Mirage transformation, retained symbols and disabled control
+        run: PYTHONPATH=protectors/mirage/src .venv/bin/python -m pytest scripts/native_tests -q
+
+      - name: Install locked dashboard and browser dependencies
+        working-directory: platform/dashboard
+        run: |
+          npm ci
+          npx --no-install playwright install chromium
+
+      - name: Build local product and owned ImageLab
+        run: |
+          .venv/bin/python scripts/product.py build
+          .venv/bin/python scripts/product.py configure
+          ctest --test-dir /tmp/aegis-product/imagelab-build --output-on-failure
+
+      - name: Real API and browser protection smoke
+        working-directory: platform/dashboard
+        run: npm run test:e2e
+
+      - name: Browser diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: product-browser-diagnostics
+          path: /tmp/aegis-product-browser-results
+          if-no-files-found: ignore
+
+  dashboard:
+    name: Dashboard contracts + production build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: platform/dashboard/package-lock.json
+      - name: Install, test and build
+        working-directory: platform/dashboard
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+  product-scripts:
+    name: Product script failure paths and evidence export
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install 3.12
+      - run: sh scripts/setup-python.sh
+      - run: .venv/bin/python -m pytest scripts/tests -q
+
   lab-suite:
     name: Lab offline suite
     runs-on: ubuntu-latest
@@ -97,4 +158,7 @@ jobs:
           uv venv --python 3.12 .venv
           uv pip install --python .venv/bin/python -c core/requirements-dev.lock -e './attack_lab[dev]'
       - name: Run Lab offline tests
-        run: .venv/bin/python -m pytest attack_lab/tests -q
+        run: .venv/bin/python -m pytest attack_lab/tests --lab-profile offline -q
+
+  # Core+Lab strict integration is deliberately not enabled against unmerged Core.
+  # Merge prerequisites and the exact future job are in docs/release/CI-INTEGRATION.md.
