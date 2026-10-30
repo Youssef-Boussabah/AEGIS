@@ -360,7 +360,7 @@ def test_regression_nebius_labelled_stub_cannot_complete(tmp_path):
     stub = FakeProvider(provider="Nebius", endpoint=NEBIUS_ENDPOINT, external_disclosure=True)
     with pytest.raises(AuthorizationError) as info:
         run_reconstruction(prepared, stub, approval=approval_for(prepared), allow_live=True)
-    assert info.value.code == "live_inference_disabled"
+    assert info.value.code == "inference_approval_required"
     assert stub.requests == []
 
 
@@ -639,9 +639,8 @@ def test_regression_public_entry_point_never_posts_to_live_provider(tmp_path, mo
     with pytest.raises(AuthorizationError) as info:
         run_reconstruction(prepared, NebiusProvider("DUMMY-NOT-A-CREDENTIAL"), approval=approval_for(prepared),
                            allow_live=True)
-    assert info.value.code == "live_inference_disabled"
-    assert info.value.reasons == ("core_execution_authorization_unavailable", "token_bound_unverified",
-                                  "transport_deadline_not_enforced")
+    assert info.value.code == "inference_approval_required"
+    assert info.value.reasons == ()  # Disclosure alone grants neither inference nor execution.
     assert LostResponseConnection.posts == 0
 
 
@@ -920,7 +919,7 @@ def test_valid_approval_is_still_blocked(nebius_prepared):
     stub = live_stub()
     with pytest.raises(AuthorizationError) as info:
         run_reconstruction(nebius_prepared, stub, approval=approval_for(nebius_prepared), allow_live=True)
-    assert info.value.code == "live_inference_disabled"
+    assert info.value.code == "inference_approval_required"
     assert stub.requests == []
 
 

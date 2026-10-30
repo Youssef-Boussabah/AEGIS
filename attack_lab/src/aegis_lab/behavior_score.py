@@ -49,16 +49,12 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, PrivateAttr, S
 
 from .c_abi import (
     ABI_VERSION,
-    CANDIDATE_FILE,
-    CANDIDATE_UNIT_FILE,
-    HARNESS_FILE,
     HARNESS_VERSION,
     OBSERVATION_PROTOCOL,
     InterfaceError,
     check_symbol,
     encode_arguments,
     harness_sha256,
-    harness_sources,
     parse_interface,
     parse_result_line,
 )
@@ -76,6 +72,7 @@ from .core_execution import (
     CoreSessionWorker,
     OpenedSession,
     check_grant_binding,
+    compilation_request,
     lab_bindings,
     open_trial_session,
     precheck_core,
@@ -95,7 +92,6 @@ from .scoring_worker import (
     WORKER_ERROR_CODES,
     WORKER_PROTOCOL,
     CompileObservation,
-    CompileRequest,
     EnforcedLimits,
     ExecuteObservation,
     ExecuteRequest,
@@ -110,8 +106,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from aegis_core.lab_execution import IsolationRuntime
 
 MAX_SCORE_RECORD_BYTES = 8 * 1024 * 1024
-# Compiled units, in order. ``candidate.c`` is staged and included by the candidate unit, never compiled alone.
-TRANSLATION_UNITS = (HARNESS_FILE, CANDIDATE_UNIT_FILE)
 MAX_DIAGNOSTIC_TEXT_BYTES = 16 * 1024
 
 CaseClass = Literal["match", "mismatch", "runtime_crash", "timeout", "resource_limit_exceeded",
@@ -1279,12 +1273,8 @@ def _drive(run: _Run, worker: object, *, monotonic: Callable[[], float]) -> None
         _complete_cases(run)
         return
     run.preflight, run.preflight_facts = "passed", facts
-    sources = harness_sources(parse_interface(prepared.interface.text), prepared.interface.symbol)
-    run.harness_sha256 = harness_sha256(sources)
-    request = CompileRequest(candidate_name=CANDIDATE_FILE, candidate=prepared.candidate_source.encode("utf-8"),
-                             support=((HARNESS_FILE, sources[HARNESS_FILE]),
-                                      (CANDIDATE_UNIT_FILE, sources[CANDIDATE_UNIT_FILE])),
-                             translation_units=TRANSLATION_UNITS, limits=policy.compile)
+    request = compilation_request(prepared)
+    run.harness_sha256 = harness_sha256(dict(request.support))
     began = monotonic()
     try:
         observation = _checked(CompileObservation, worker.compile(request))

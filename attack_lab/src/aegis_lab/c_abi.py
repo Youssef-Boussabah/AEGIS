@@ -48,6 +48,8 @@ SCALAR_TYPE = "uint32_t"
 HARNESS_FILE = "aegis_harness.c"
 CANDIDATE_UNIT_FILE = "aegis_candidate_unit.c"
 CANDIDATE_FILE = "candidate.c"
+# Compiler order; candidate.c is staged and included by the candidate unit, never compiled alone.
+TRANSLATION_UNITS = (HARNESS_FILE, CANDIDATE_UNIT_FILE)
 BINARY_FILE = "candidate"
 # Exit status the harness uses for its own argument or I/O failures. Candidate code can exit with
 # the same status, so it is recorded but never trusted as a harness diagnosis.
@@ -194,6 +196,11 @@ def harness_sources(interface: ScalarInterface, symbol: str) -> dict[str, bytes]
         "}\n"
     )
     return {HARNESS_FILE: harness.encode("ascii"), CANDIDATE_UNIT_FILE: unit.encode("ascii")}
+
+
+def compilation_sources(candidate: bytes, interface: ScalarInterface, symbol: str) -> dict[str, bytes]:
+    """Exact staged files for operator review and compilation; contains no hidden test data."""
+    return {CANDIDATE_FILE: candidate, **harness_sources(interface, symbol)}
 
 
 def harness_sha256(sources: dict[str, bytes]) -> str:

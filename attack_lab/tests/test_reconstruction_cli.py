@@ -283,9 +283,8 @@ def test_run_live_with_valid_approval_is_still_blocked(live, capsys):
     rc = invoke(approval_for(prepared), "--i-accept-external-disclosure")
     err = capsys.readouterr().err
     assert rc == EXIT_AUTHORIZATION_BLOCKED
-    assert "authorization: live_inference_disabled" in err
-    assert "blocked_by: core_execution_authorization_unavailable" in err
-    assert "blocked_by: token_bound_unverified" in err
+    assert "authorization: inference_approval_required" in err
+    assert "core_execution_authorization_unavailable" not in err
     assert "SENTINEL" not in err
 
 

@@ -1268,9 +1268,11 @@ def test_cli_verify_requires_all_or_no_inputs(fx, capsys):
 def test_module_is_runnable_with_python_m(fx):
     paths, out = write_inputs(fx), fx["tmp"] / "experiment"
     root = Path(__file__).resolve().parents[2]
-    proc = subprocess.run([str(root / ".venv" / "bin" / "python"), "-m", "aegis_lab.paired_trial",
+    import sys
+    proc = subprocess.run([sys.executable, "-m", "aegis_lab.paired_trial",
                            *cli_args(paths, out, "--order-seed", "3")],
-                          capture_output=True, text=True, timeout=120, env={"PATH": os.environ.get("PATH", "")})
+                          capture_output=True, text=True, timeout=120,
+                          env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(root / "attack_lab" / "src")})
     assert proc.returncode == 0, proc.stderr
     assert json.loads(proc.stdout)["pair_status"] == "candidates_received_for_both_trials"
 

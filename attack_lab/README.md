@@ -12,11 +12,16 @@ budgets, and paired orchestration through existing pair validation. This is not 
 direct REA integration. Generated candidates are **behaviorally unscored** while
 Core execution remains unavailable; no candidate executes in the demonstration.
 
-The real Nebius transport uses the documented Token Factory API and now also
-requires explicit transport opt-in. Live inference is still refused by the public
-Lab reconstruction/workflow entry points. No credits were spent. FakeOffline always
-identifies itself as scripted offline inference. Missing usage is unknown and
-conservatively reserved, never represented as zero model use. Offline cost is zero.
+Live inference is implemented through a separate, single-use operator approval and
+process-bounded Nebius transport. It does not grant compilation or execution rights;
+Core's execution authorization and dual gates are unchanged. See
+[the inference decision, exact commands and approval gate](docs/live-inference.md).
+The live path checks account model availability before disclosure, reserves the
+full published model context and worst-case spending, and archives exact responses
+privately. Live account calls have **not been run** and no credits were spent.
+FakeOffline remains explicitly scripted. Missing usage and actual live billing stay
+unknown; offline cost is zero. Historical phase descriptions below describe their
+original delivery; the linked live-inference document supersedes their live blockers.
 
 [Reproduction commands and integration handoff](docs/role-b-delivery.md) cover
 strict/offline test profiles, the actual baseline/Shield/Mirage demonstration,
@@ -1191,9 +1196,21 @@ prompt, runtime or retry.
     the scorer-configuration digest;
   - each trial is listed as `candidate_id = trial_id`, with the exact candidate
     SHA-256 and its own manifest target;
+  - `compilation_bundle_sha256` binds the candidate's exact UTF-8 source bytes,
+    generated harness and candidate unit, including their exact names and ordered
+    translation units. Missing or different digests are refused before opening a
+    Core session (`grant_compilation_bundle_required` / `grant_compilation_bundle_mismatch`);
   - the stages include compile and execute, and the flags and limits equal the
     policy;
   - the budgets cover the whole suite.
+
+  Grant issuers use `aegis_lab.core_execution.reviewed_candidate_binding` to
+  produce each reviewed candidate entry with Core's canonical bundle helper;
+  scoring constructs the same three-file layout through `compilation_request`.
+  The reconstruction record's actual `task.function_label` selects the symbol:
+  `target_function` when blinded, the declared function name when unblinded.
+  These helpers compute metadata and grant no execution permission.
+  See [the Core bundle migration and current-source test commands](docs/core-bundle-migration.md).
 
   Core then applies its gates, window and ceilings (`core_refused`) and its
   runtime preflight (`sandbox_unavailable`).

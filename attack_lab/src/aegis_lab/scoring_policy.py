@@ -220,6 +220,8 @@ EXECUTION_REFUSAL_CODES = frozenset({
     "grant_candidate_not_listed",
     "grant_candidate_mismatch",
     "grant_target_mismatch",
+    "grant_compilation_bundle_required",
+    "grant_compilation_bundle_mismatch",
     "grant_stages_insufficient",
     "grant_flags_mismatch",
     "grant_limits_mismatch",

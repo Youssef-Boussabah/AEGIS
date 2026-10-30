@@ -40,8 +40,9 @@ operation, not a cap on total time: a server that keeps trickling bytes, the
 buffered reads inside ``http.client`` and name resolution inside ``connect`` can
 all run past the deadline before control returns. The call then reports
 ``deadline_exceeded`` (or ``timeout``) *after* the fact. Guaranteed wall-clock
-interruption is **not** established; it must be solved before live inference
-is enabled.
+interruption is **not** established by this HTTP implementation alone. Operational
+live inference uses ``aegis_lab.bounded_provider.BoundedNebiusProvider`` to run it
+under a separate process-group wall deadline.
 
 Response validation (``parse_completion``): strict UTF-8 JSON without duplicate
 keys or non-finite numbers; exactly one choice; a string (or explicitly absent)
@@ -337,6 +338,7 @@ class InferenceRequest(BaseModel):
     seed: int | None = Field(ge=0, le=2**63 - 1, default=None)
     stop: tuple[str, ...] = Field(max_length=4, default=())
     n: Literal[1] = 1
+    store: Literal[False] | None = None
 
     def unsupported_options(self) -> tuple[str, ...]:
         """Options whose effect the provider does not guarantee; recorded, not asserted."""
@@ -357,6 +359,11 @@ class InferenceRequest(BaseModel):
             body["stop"] = list(self.stop)
         if self.seed is not None:
             body["seed"] = self.seed
+        if self.store is not None:
+            body["store"] = self.store
+            # Live requests cap reasoning tokens as well as visible output.
+            body["max_completion_tokens"] = self.max_output_tokens
+            body["service_tier"] = "default"
         return body
 
 
@@ -634,8 +641,9 @@ class NebiusProvider:
     API key is private and never recorded. The ``timeout`` is a logical deadline
     plus per-operation socket inactivity timeouts, not a hard wall-clock bound
     (see the module docstring). ``external_disclosure`` is True: the
-    reconstruction pipeline refuses to drive this provider until Core execution
-    authorization is integrated (see ``aegis_lab.reconstruction``).
+    inference-only runner refuses to drive this unbounded HTTP implementation
+    directly. It uses ``BoundedNebiusProvider`` with a separate operator approval;
+    generated-candidate execution still requires Core authorization.
     """
 
     external_disclosure = True
