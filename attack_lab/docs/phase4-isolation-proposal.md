@@ -31,7 +31,11 @@ Each failure raises `ExecutionRefused` with a `grant_*` code.
 - Each scored trial is listed:
   - `candidate_id = trial_id`;
   - `candidate_sha256` = SHA-256 of the exact candidate source in the verified reconstruction record;
-  - `target_sha256` = that trial's manifest `final_artifact_sha256`. Core cannot verify the target.
+  - `target_sha256` = that trial's manifest `final_artifact_sha256`. Core cannot verify the target;
+  - `compilation_bundle_sha256` = Core's canonical digest of every named source
+    file and the exact ordered translation units. Missing/different bundles fail
+    before any Core session or budget reservation. Grant issuers and the scorer
+    share the same source-layout builder and use the actual blinded/unblinded symbol.
 - Stages include `compile` and `execute`. The flags equal the policy flags exactly. The grant's compile and
   execute limits equal the policy's limits exactly, so the scored limits are the policy's.
 - `max_executions_per_candidate` covers the whole suite. `max_total_wall_ms` covers one compilation plus
@@ -61,6 +65,13 @@ Then Core decides: `authorize_candidate_execution` (gates, window, ceilings), th
   case arguments, observed outputs and unbounded diagnostics.
 
 ## 2. Interface items with Role A (resolved in Role A's current worktree)
+
+The compilation-bundle migration now targets current
+`/home/youss/Projects/aegis-core-lab-execution/core/src` directly, without a
+supplemental pytest plugin or frozen source snapshot. See
+[the migration report](core-bundle-migration.md) for reproduction and limitations.
+New bundle-bound grants must be reviewed and reissued with a new grant id;
+never reset an existing ledger to migrate authorization.
 
 1. **Translation units: resolved.** `session.compile` now takes an explicit `translation_units` list.
    - The Lab passes `["aegis_harness.c", "aegis_candidate_unit.c"]`. `candidate.c` is staged, and the

@@ -1196,9 +1196,21 @@ prompt, runtime or retry.
     the scorer-configuration digest;
   - each trial is listed as `candidate_id = trial_id`, with the exact candidate
     SHA-256 and its own manifest target;
+  - `compilation_bundle_sha256` binds the candidate's exact UTF-8 source bytes,
+    generated harness and candidate unit, including their exact names and ordered
+    translation units. Missing or different digests are refused before opening a
+    Core session (`grant_compilation_bundle_required` / `grant_compilation_bundle_mismatch`);
   - the stages include compile and execute, and the flags and limits equal the
     policy;
   - the budgets cover the whole suite.
+
+  Grant issuers use `aegis_lab.core_execution.reviewed_candidate_binding` to
+  produce each reviewed candidate entry with Core's canonical bundle helper;
+  scoring constructs the same three-file layout through `compilation_request`.
+  The reconstruction record's actual `task.function_label` selects the symbol:
+  `target_function` when blinded, the declared function name when unblinded.
+  These helpers compute metadata and grant no execution permission.
+  See [the Core bundle migration and current-source test commands](docs/core-bundle-migration.md).
 
   Core then applies its gates, window and ceilings (`core_refused`) and its
   runtime preflight (`sandbox_unavailable`).

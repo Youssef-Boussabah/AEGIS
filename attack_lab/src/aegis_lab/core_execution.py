@@ -7,7 +7,8 @@ the operator's ``AttackLabAuthorization``. Core checks its three gates
 enabled``), the grant window and the operator ceilings when a session opens, and
 again before **every** compile and execute. It hashes the candidate bytes against
 the grant, enforces the exact flags, limits and budgets, and runs only binaries
-it compiled in the same session.
+it compiled in the same session. Compilation grants bind every named file and
+ordered translation unit through Core's canonical compilation-bundle digest.
 
 The Lab adds no permission of its own. Before contacting Core it checks only that
 the grant describes the Lab's actual inputs, so a grant cannot silently authorize
@@ -18,6 +19,8 @@ something other than what is scored:
   sandbox policy, scorer configuration). Core cannot verify these;
 - each scored trial is listed with its exact candidate SHA-256 and its own final
   target artifact. Core cannot verify the target;
+- the complete compilation bundle (candidate, generated harness, candidate unit,
+  and exact ordered units) matches the grant before any session is opened;
 - the stages, flags and per-stage limits equal the policy, so the scored limits
   are the policy's;
 - the budgets cover the whole suite for every scored trial.
@@ -45,7 +48,9 @@ from aegis_core.errors import AegisError
 from aegis_core.lab_authorization import (
     CandidateExecutionGrant,
     LabBindings,
+    PermittedCandidate,
     authorize_candidate_execution,
+    compilation_bundle_sha256,
     grant_sha256,
 )
 from aegis_core.lab_execution import (
@@ -61,6 +66,7 @@ from aegis_core.lab_limits import SandboxLimits as CoreSandboxLimits
 from aegis_core.models import ErrorCode
 
 from .canonical import canonical_sha256
+from .c_abi import CANDIDATE_FILE, TRANSLATION_UNITS, compilation_sources, parse_interface
 from .scoring_policy import ExecutionRefused, SandboxPolicy, SandboxRuntime, scorer_configuration_sha256
 from .scoring_worker import (
     CompileObservation,
@@ -101,6 +107,30 @@ def required_wall_ms(prepared: PreparedScoring) -> int:
     return prepared.policy.compile.wall_ms + len(prepared.suite.cases) * prepared.policy.execute.wall_ms
 
 
+def reviewed_candidate_binding(*, candidate_id: str, candidate: bytes, target_sha256: str,
+                               interface: str, symbol: str) -> PermittedCandidate:
+    """Compute one grant entry from reviewed source and its actual reconstruction label.
+
+    This hashes metadata only; it issues no authorization or grant. Operators must
+    review the files and retain Core's gates, budgets and grant-ledger requirements.
+    """
+    files = compilation_sources(candidate, parse_interface(interface), symbol)
+    return PermittedCandidate(candidate_id=candidate_id, candidate_sha256=hashlib.sha256(candidate).hexdigest(),
+                              target_sha256=target_sha256,
+                              compilation_bundle_sha256=compilation_bundle_sha256(files, TRANSLATION_UNITS))
+
+
+def compilation_request(prepared: PreparedScoring) -> CompileRequest:
+    """Build the same three-file layout reviewed by the grant issuer, without executing it."""
+    if prepared.candidate_source is None or prepared.interface.status != "supported":
+        raise ValueError("compilation_requires_supported_candidate")
+    files = compilation_sources(prepared.candidate_source.encode("utf-8"),
+                                parse_interface(prepared.interface.text), prepared.interface.symbol)
+    return CompileRequest(candidate_name=CANDIDATE_FILE, candidate=files[CANDIDATE_FILE],
+                          support=tuple((name, files[name]) for name in TRANSLATION_UNITS),
+                          translation_units=TRANSLATION_UNITS, limits=prepared.policy.compile)
+
+
 def check_grant_binding(grant: CandidateExecutionGrant | None, trials: list[PreparedScoring]) -> None:
     """Raise ``ExecutionRefused`` unless the grant describes exactly what the Lab will run."""
     if grant is None:
@@ -130,6 +160,12 @@ def check_grant_binding(grant: CandidateExecutionGrant | None, trials: list[Prep
             raise ExecutionRefused("grant_candidate_mismatch")
         if permitted.target_sha256 != manifest.target.final_artifact_sha256:
             raise ExecutionRefused("grant_target_mismatch")
+        if permitted.compilation_bundle_sha256 is None:
+            raise ExecutionRefused("grant_compilation_bundle_required")
+        request = compilation_request(prepared)
+        files = {request.candidate_name: request.candidate, **dict(request.support)}
+        if permitted.compilation_bundle_sha256 != compilation_bundle_sha256(files, request.translation_units):
+            raise ExecutionRefused("grant_compilation_bundle_mismatch")
         if grant.max_executions_per_candidate < len(prepared.suite.cases):
             raise ExecutionRefused("grant_budget_insufficient", ("max_executions_per_candidate",))
     if sum(required_wall_ms(p) for p in trials) > grant.max_total_wall_ms:

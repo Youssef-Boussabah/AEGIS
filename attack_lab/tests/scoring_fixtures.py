@@ -187,15 +187,23 @@ def grant(fx: dict, *, variants=("baseline", "protected"), now: datetime | None 
     first grant contents that used it, so logically independent grants must not share an id.
     """
     from aegis_core.lab_authorization import CandidateExecutionGrant
+    from aegis_lab.core_execution import reviewed_candidate_binding
+    from aegis_lab.reconstruction import parse_reconstruction_record
 
     now = now or datetime.now(UTC)
     policy = policy or fx["policy"]
     manifests = fx["manifests"]
     targets = []
+    candidates = []
     for v in variants:
         target = manifests[v].target.final_artifact_sha256
         if target not in targets:
             targets.append(target)
+        record = parse_reconstruction_record(reconstruction_bytes(fx, v))
+        candidates.append(reviewed_candidate_binding(
+            candidate_id=manifests[v].trial_id, candidate=record.candidate.source.encode("utf-8"),
+            target_sha256=target, interface=record.task.expected_interface,
+            symbol=record.task.function_label).model_dump(mode="json"))
     data = {
         "schema_version": "aegis.core.candidate-execution-grant.v1",
         "grant_id": secrets.token_hex(16),
@@ -204,8 +212,7 @@ def grant(fx: dict, *, variants=("baseline", "protected"), now: datetime | None 
                           "attested_at": (now - timedelta(hours=2)).isoformat(),
                           "expires_at": (now + timedelta(days=2)).isoformat()},
         "permitted_targets": targets,
-        "candidates": [{"candidate_id": manifests[v].trial_id, "candidate_sha256": candidate_digest(fx, v),
-                        "target_sha256": manifests[v].target.final_artifact_sha256} for v in variants],
+        "candidates": candidates,
         "stages": ["compile", "execute"],
         "compile_flags": list(policy.compiler.flags),
         "compile_limits": policy.compile.model_dump(),
